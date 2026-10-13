@@ -19,7 +19,7 @@ export class UnoAI {
           continue; // Protect teammate
         }
         const target = this.engine.players[pIdx];
-        if (target.hand.length === 1 && target.unoVulnerable && !target.pendingUnoCall) {
+        if (target.hand.length === 1 && target.unoVulnerable) {
           if (Math.random() < 0.65) {
             return {
               action: 'challenge',

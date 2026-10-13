@@ -496,7 +496,7 @@ export function GameTableView({
       return;
     }
 
-    const willHaveOneCard = displayedHand.length === 2;
+    const hasPreCalledUno = !!myPlayer.calledUno;
 
     if (card.color === 'wild') {
       soundManager.playWild();
@@ -506,10 +506,10 @@ export function GameTableView({
       if (cardEl && discardPileRef.current) {
         const cardKey = card.displayAssetKey || card.assetKey;
         cardAnimationService.animatePlayCard(cardEl, discardPileRef.current, cardKey, () => {
-          onPlayCard(card.id, null, willHaveOneCard);
+          onPlayCard(card.id, null, hasPreCalledUno);
         });
       } else {
-        onPlayCard(card.id, null, willHaveOneCard);
+        onPlayCard(card.id, null, hasPreCalledUno);
       }
     } else {
       // Skip card transition
@@ -532,10 +532,10 @@ export function GameTableView({
       if (cardEl && discardPileRef.current) {
         const cardKey = card.displayAssetKey || card.assetKey;
         cardAnimationService.animatePlayCard(cardEl, discardPileRef.current, cardKey, () => {
-          onPlayCard(card.id, null, willHaveOneCard);
+          onPlayCard(card.id, null, hasPreCalledUno);
         });
       } else {
-        onPlayCard(card.id, null, willHaveOneCard);
+        onPlayCard(card.id, null, hasPreCalledUno);
       }
     }
   };
@@ -1106,8 +1106,10 @@ export function GameTableView({
                       </button>
                     )}
 
-                    {/* Smart UNO Button: ONLY when isMyTurn and player can actually reach 1 card (2 cards with valid play, or 1 card) */}
-                    {isMyTurn && !isChoosingColor && ((displayedHand.length === 2 && (validCards.length > 0 || myPlayer.calledUno)) || displayedHand.length === 1) && (
+                    {/* Manual UNO Button:
+                        1. During turn when player has 2 cards with playable card (can pre-call before playing)
+                        2. Or anytime with 1 card when player hasn't called UNO yet (can rescue call before being challenged) */}
+                    {!isDealing && (((isMyTurn && !isChoosingColor && displayedHand.length === 2 && (validCards.length > 0 || myPlayer.calledUno))) || (displayedHand.length === 1)) && (
                       <button
                         type="button"
                         onClick={onCallUno}
@@ -1115,7 +1117,7 @@ export function GameTableView({
                         className={`py-1.5 px-4 rounded-full font-black text-xs shadow-xl transition active:scale-95 ${
                           myPlayer.calledUno
                             ? 'bg-emerald-700 text-white opacity-80 cursor-default'
-                            : 'bg-red-600 hover:bg-red-500 text-yellow-300 border-2 border-yellow-300 uno-alert-btn'
+                            : 'bg-red-600 hover:bg-red-500 text-yellow-300 border-2 border-yellow-300 uno-alert-btn animate-bounce'
                         }`}
                       >
                         {myPlayer.calledUno ? '✓ 已喊 UNO！' : 'UNO！'}

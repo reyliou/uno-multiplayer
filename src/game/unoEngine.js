@@ -362,17 +362,21 @@ export class UnoEngine {
         player.pendingUnoCall = false;
       } else {
         if (player.isAi) {
-          if (Math.random() < 0.88) {
+          if (Math.random() < 0.8) {
             player.calledUno = true;
             player.unoVulnerable = false;
+            this.addLog(`🚨 【${player.name}】大喊了「UNO！」 (剩最後 1 張牌)`);
           } else {
             player.calledUno = false;
             player.unoVulnerable = true;
+            this.addLog(`👀 【${player.name}】剩最後 1 張牌但忘記喊 UNO！大家快抓漏！`);
           }
         } else {
-          needsUnoGracePeriod = true;
-          player.pendingUnoCall = true;
-          player.unoVulnerable = false;
+          // Human player did NOT manually click the UNO button!
+          player.calledUno = false;
+          player.unoVulnerable = true;
+          player.pendingUnoCall = false;
+          this.addLog(`👀 【${player.name}】打出牌剩最後 1 張，但尚未喊 UNO！大家快抓漏！`);
         }
       }
     } else {
@@ -826,17 +830,21 @@ export class UnoEngine {
   callUno(playerIndex) {
     const player = this.players[playerIndex];
     if (!player) return { success: false };
-    if (player.hand.length <= 2) {
-      if (player.hand.length === 2) {
-        const validCards = this.getValidCardsForPlayer(playerIndex);
-        if (validCards.length === 0) {
-          return { success: false, reason: '手牌剩 2 張但無牌可出，無法喊 UNO！' };
-        }
+    if (player.hand.length === 2) {
+      const validCards = this.getValidCardsForPlayer(playerIndex);
+      if (validCards.length === 0) {
+        return { success: false, reason: '手牌剩 2 張但無牌可出，無法喊 UNO！' };
       }
       player.calledUno = true;
       player.unoVulnerable = false;
       player.pendingUnoCall = false;
-      this.addLog(`🚨 ${player.name} 大喊了「UNO！」 (剩最後 1 張牌)`);
+      this.addLog(`🚨 【${player.name}】預先大喊「UNO！」 (準備出牌剩 1 張)`);
+      return { success: true };
+    } else if (player.hand.length === 1) {
+      player.calledUno = true;
+      player.unoVulnerable = false;
+      player.pendingUnoCall = false;
+      this.addLog(`🚨 【${player.name}】及時大喊「UNO！」！解除被抓漏危機！`);
       return { success: true };
     }
     return { success: false, reason: '手牌超過 2 張時不能喊 UNO！' };
@@ -844,13 +852,15 @@ export class UnoEngine {
 
   challengeUno(challengerIndex, targetIndex) {
     const target = this.players[targetIndex];
-    if (target && target.hand.length === 1 && target.unoVulnerable && !target.pendingUnoCall) {
+    if (target && target.hand.length === 1 && target.unoVulnerable) {
       this.drawCardsForPlayer(targetIndex, 2);
+      target.calledUno = false;
       target.unoVulnerable = false;
-      this.addLog(`⚖️ ${this.players[challengerIndex].name} 抓到了 ${target.name} 沒喊 UNO！${target.name} 被罰抽 2 張牌！`);
+      target.pendingUnoCall = false;
+      this.addLog(`⚖️ 【${this.players[challengerIndex].name}】眼明手快抓到了【${target.name}】沒喊 UNO！${target.name} 被罰抽 2 張牌！`);
       return { success: true, caught: true, targetName: target.name };
     }
-    return { success: false, reason: '對方已喊 UNO 或還在寬限期內！' };
+    return { success: false, reason: '對方已喊 UNO 或目前不可抓漏！' };
   }
 
   calculateScores() {
