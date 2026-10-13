@@ -13,6 +13,7 @@ export default function App() {
   const [roomCode, setRoomCode] = useState('');
   const [lobbyPlayers, setLobbyPlayers] = useState([]);
   const [allowStacking, setAllowStacking] = useState(true);
+  const [allowChallengeWildDraw4, setAllowChallengeWildDraw4] = useState(true);
   const [gameMode, setGameMode] = useState('ffa'); // 'ffa' | '2v2'
   const [targetScore, setTargetScore] = useState(500); // 0 = casual/no score limit
   const [drawRule, setDrawRule] = useState('draw_one'); // 'draw_one' | 'draw_until_playable'
@@ -24,6 +25,7 @@ export default function App() {
     p2pNetwork.onLobbyUpdate = (data) => {
       setLobbyPlayers([...data.players]);
       setAllowStacking(data.allowStacking);
+      if (data.allowChallengeWildDraw4 !== undefined) setAllowChallengeWildDraw4(data.allowChallengeWildDraw4);
       setGameMode(data.gameMode || 'ffa');
       setRoomCode(data.roomCode);
       if (data.targetScore !== undefined) setTargetScore(data.targetScore);
@@ -38,6 +40,7 @@ export default function App() {
 
     p2pNetwork.onReturnToLobby = (data) => {
       if (data && data.players) setLobbyPlayers([...data.players]);
+      if (data && data.allowChallengeWildDraw4 !== undefined) setAllowChallengeWildDraw4(data.allowChallengeWildDraw4);
       if (data && data.targetScore !== undefined) setTargetScore(data.targetScore);
       if (data && data.drawRule) setDrawRule(data.drawRule);
       setView('lobby');
@@ -89,6 +92,11 @@ export default function App() {
   // Toggle stacking rule (Host only)
   const handleToggleStacking = () => {
     p2pNetwork.toggleStackingRule();
+  };
+
+  // Toggle challenge wild draw 4 rule (Host only)
+  const handleToggleChallengeRule = () => {
+    p2pNetwork.toggleChallengeRule();
   };
 
   // Set target score (Host only)
@@ -180,6 +188,14 @@ export default function App() {
     }
   };
 
+  const handleChallengeWildDraw4 = () => {
+    if (isHost) {
+      p2pNetwork.hostChallengeWildDraw4();
+    } else {
+      p2pNetwork.clientChallengeWildDraw4();
+    }
+  };
+
   const handleChooseColor = (chosenColor) => {
     if (isHost) {
       p2pNetwork.hostChooseColor(chosenColor);
@@ -220,10 +236,12 @@ export default function App() {
           players={lobbyPlayers}
           gameMode={gameMode}
           allowStacking={allowStacking}
+          allowChallengeWildDraw4={allowChallengeWildDraw4}
           targetScore={targetScore}
           drawRule={drawRule}
           onToggleAi={handleToggleAi}
           onToggleStacking={handleToggleStacking}
+          onToggleChallengeRule={handleToggleChallengeRule}
           onSetTargetScore={handleSetTargetScore}
           onSetDrawRule={handleSetDrawRule}
           onSetGameMode={handleSetGameMode}
@@ -244,6 +262,7 @@ export default function App() {
           onPassTurn={handlePassTurn}
           onCallUno={handleCallUno}
           onChallengeUno={handleChallengeUno}
+          onChallengeWildDraw4={handleChallengeWildDraw4}
         />
       )}
 

@@ -27,6 +27,7 @@ export class P2PNetwork {
     // Lobby player list (Host & Client)
     this.lobbyPlayers = [];
     this.allowStacking = true;
+    this.allowChallengeWildDraw4 = true;
     this.gameMode = 'ffa'; // 'ffa' | '2v2'
     this.targetScore = 500; // 0 = casual/no score limit
     this.drawRule = 'draw_one'; // 'draw_one' | 'draw_until_playable'
@@ -57,6 +58,7 @@ export class P2PNetwork {
     this.roomCode = roomCode.toUpperCase();
     this.playerName = hostName.trim() || '房主';
     this.allowStacking = allowStacking;
+    this.allowChallengeWildDraw4 = true;
     this.gameMode = gameMode;
     this.gameStarted = false;
     this.guestConns.clear();
@@ -209,6 +211,7 @@ export class P2PNetwork {
           roomCode: this.roomCode,
           gameMode: this.gameMode,
           allowStacking: this.allowStacking,
+          allowChallengeWildDraw4: this.allowChallengeWildDraw4,
           targetScore: this.targetScore,
           drawRule: this.drawRule
         });
@@ -386,6 +389,23 @@ export class P2PNetwork {
         break;
       }
 
+      case 'ACTION_CHALLENGE_WILD_DRAW4': {
+        if (!this.gameStarted || !this.engine) return;
+        const guest = this.guestConns.get(conn.peer);
+        if (!guest) return;
+
+        const res = this.engine.challengeWildDraw4(guest.slotIndex);
+        if (res.success) {
+          soundManager.playPenalty();
+          this.broadcastSoundEvent('penalty');
+          this.broadcastGameState();
+          this.checkAiTurn();
+        } else {
+          conn.send({ type: 'ACTION_FAILED', reason: res.reason });
+        }
+        break;
+      }
+
       default:
         break;
     }
@@ -511,6 +531,12 @@ export class P2PNetwork {
     this.broadcastLobbyUpdate();
   }
 
+  toggleChallengeRule() {
+    if (!this.isHost || this.gameStarted) return;
+    this.allowChallengeWildDraw4 = !this.allowChallengeWildDraw4;
+    this.broadcastLobbyUpdate();
+  }
+
   setTargetScore(score) {
     if (!this.isHost || this.gameStarted) return;
     this.targetScore = Number(score);
@@ -543,7 +569,11 @@ export class P2PNetwork {
       this.lobbyPlayers,
       this.allowStacking,
       this.gameMode,
-      { targetScore: this.targetScore, drawRule: this.drawRule }
+      {
+        targetScore: this.targetScore,
+        drawRule: this.drawRule,
+        allowChallengeWildDraw4: this.allowChallengeWildDraw4
+      }
     );
     this.ai = new UnoAI(this.engine);
 
@@ -643,6 +673,7 @@ export class P2PNetwork {
       players: this.lobbyPlayers,
       gameMode: this.gameMode,
       allowStacking: this.allowStacking,
+      allowChallengeWildDraw4: this.allowChallengeWildDraw4,
       targetScore: this.targetScore,
       drawRule: this.drawRule,
       roomCode: this.roomCode
@@ -786,6 +817,17 @@ export class P2PNetwork {
     if (move.action === 'challenge') {
       const res = this.engine.challengeUno(aiIndex, move.targetIndex);
       if (res.success && res.caught) {
+        soundManager.playPenalty();
+        this.broadcastSoundEvent('penalty');
+        this.broadcastGameState();
+      }
+      this.checkAiTurn();
+      return;
+    }
+
+    if (move.action === 'challenge_wild_draw4') {
+      const res = this.engine.challengeWildDraw4(aiIndex);
+      if (res.success) {
         soundManager.playPenalty();
         this.broadcastSoundEvent('penalty');
         this.broadcastGameState();
@@ -1152,6 +1194,19 @@ export class P2PNetwork {
     return res;
   }
 
+  hostChallengeWildDraw4() {
+    if (!this.isHost || !this.engine) return { success: false };
+    const hostIdx = this.getHostIndex();
+    const res = this.engine.challengeWildDraw4(hostIdx);
+    if (res.success) {
+      soundManager.playPenalty();
+      this.broadcastSoundEvent('penalty');
+      this.broadcastGameState();
+      this.checkAiTurn();
+    }
+    return res;
+  }
+
   // Broadcasts
   broadcastLobbyUpdate() {
     const data = {
@@ -1159,6 +1214,7 @@ export class P2PNetwork {
       players: this.lobbyPlayers,
       gameMode: this.gameMode,
       allowStacking: this.allowStacking,
+      allowChallengeWildDraw4: this.allowChallengeWildDraw4,
       targetScore: this.targetScore,
       drawRule: this.drawRule,
       roomCode: this.roomCode
@@ -1270,6 +1326,7 @@ export class P2PNetwork {
         this.mySlotIndex = packet.slotIndex;
         this.gameMode = packet.gameMode || 'ffa';
         this.allowStacking = packet.allowStacking;
+        if (packet.allowChallengeWildDraw4 !== undefined) this.allowChallengeWildDraw4 = packet.allowChallengeWildDraw4;
         this.targetScore = packet.targetScore !== undefined ? packet.targetScore : 500;
         this.drawRule = packet.drawRule || 'draw_one';
         break;
@@ -1284,6 +1341,7 @@ export class P2PNetwork {
         this.lobbyPlayers = packet.players;
         this.gameMode = packet.gameMode || 'ffa';
         this.allowStacking = packet.allowStacking;
+        if (packet.allowChallengeWildDraw4 !== undefined) this.allowChallengeWildDraw4 = packet.allowChallengeWildDraw4;
         this.targetScore = packet.targetScore !== undefined ? packet.targetScore : 500;
         this.drawRule = packet.drawRule || 'draw_one';
         if (this.onLobbyUpdate) this.onLobbyUpdate(packet);
@@ -1294,6 +1352,7 @@ export class P2PNetwork {
         this.lobbyPlayers = packet.players || this.lobbyPlayers;
         this.gameMode = packet.gameMode || 'ffa';
         this.allowStacking = packet.allowStacking;
+        if (packet.allowChallengeWildDraw4 !== undefined) this.allowChallengeWildDraw4 = packet.allowChallengeWildDraw4;
         this.targetScore = packet.targetScore !== undefined ? packet.targetScore : 500;
         this.drawRule = packet.drawRule || 'draw_one';
         if (this.onReturnToLobby) this.onReturnToLobby(packet);
@@ -1356,6 +1415,13 @@ export class P2PNetwork {
     this.hostConn.send({
       type: 'ACTION_CHALLENGE',
       targetIndex
+    });
+  }
+
+  clientChallengeWildDraw4() {
+    if (!this.hostConn || !this.hostConn.open) return;
+    this.hostConn.send({
+      type: 'ACTION_CHALLENGE_WILD_DRAW4'
     });
   }
 

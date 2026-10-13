@@ -30,7 +30,7 @@ export class UnoAI {
       }
     }
 
-    // AI Step 2: Stacking Penalty Defense Check (+2/+4 stack defense)
+    // AI Step 2: Stacking Penalty Defense Check (+2/+4 stack defense or +4 challenge)
     if (this.engine.stackedDrawCount > 0) {
       const validStackCards = this.engine.getValidCardsForPlayer(playerIndex);
       if (validStackCards.length > 0) {
@@ -46,6 +46,16 @@ export class UnoAI {
           callUno: player.hand.length === 2 && Math.random() < 0.85
         };
       } else {
+        // AI has no card to stack: If facing wild_draw4, consider challenging!
+        if (this.engine.stackedDrawType === 'wild_draw4' && this.engine.allowChallengeWildDraw4 && this.engine.lastWildDraw4Info) {
+          // In 2v2, do not challenge teammate
+          if (is2v2 && teammate && this.engine.lastWildDraw4Info.playerIndex === teammate.id) {
+            return { action: 'draw' };
+          }
+          if (Math.random() < 0.5) {
+            return { action: 'challenge_wild_draw4' };
+          }
+        }
         return { action: 'draw' };
       }
     }

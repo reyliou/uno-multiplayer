@@ -24,6 +24,7 @@ export class UnoEngine {
     this.customPlayers = customPlayers;
     this.targetScore = options.targetScore !== undefined ? options.targetScore : 500; // 0 = casual/no score limit
     this.drawRule = options.drawRule || 'draw_one'; // 'draw_one' | 'draw_until_playable'
+    this.allowChallengeWildDraw4 = options.allowChallengeWildDraw4 !== undefined ? options.allowChallengeWildDraw4 : true;
     this.isMatchOver = false;
     this.matchWinner = null;
     this.lastRoundPoints = 0;
@@ -38,6 +39,8 @@ export class UnoEngine {
     // Stacking penalty pool
     this.stackedDrawCount = 0;
     this.stackedDrawType = null; // 'draw2' or 'wild_draw4'
+    this.lastWildDraw4Info = null; // Tracks info for +4 challenge
+    this.pendingWildDraw4Info = null;
 
     // Continuous drawing state
     this.isContinuousDrawing = false;
@@ -279,14 +282,10 @@ export class UnoEngine {
     if (!card) return false;
     if (this.isChoosingColor) return false;
 
-    // ACTIVE STACK PENALTY: Only stacking cards are allowed!
+    // ACTIVE STACK PENALTY: Only stacking cards of the exact same type (+2 on +2, +4 on +4) are allowed!
     if (this.stackedDrawCount > 0) {
-      if (this.stackedDrawType === 'draw2') {
-        return card.value === 'draw2' || card.value === 'wild_draw4';
-      } else if (this.stackedDrawType === 'wild_draw4') {
-        return card.value === 'wild_draw4';
-      }
-      return false;
+      if (!this.allowStacking) return false;
+      return card.value === this.stackedDrawType;
     }
 
     // Normal play rules:
@@ -348,6 +347,24 @@ export class UnoEngine {
     const card = player.hand[cardIdx];
     if (!this.canPlayCard(card)) {
       return { success: false, reason: '此牌不符合出牌規則！' };
+    }
+
+    // Save Wild Draw 4 challenge verification info BEFORE card is removed from hand!
+    if (card.value === 'wild_draw4') {
+      const prevColor = this.currentColor;
+      const prevValue = this.currentValue;
+      // Illegal if player had cards matching current color or value (excluding wild cards)
+      const matchingCards = player.hand.filter(c => c.id !== card.id && (c.color === prevColor || (c.color !== 'wild' && c.value === prevValue)));
+      this.pendingWildDraw4Info = {
+        playerIndex,
+        playerName: player.name,
+        hasMatchingCard: matchingCards.length > 0,
+        matchingCardNames: matchingCards.map(c => this.getCardDisplayName(c)),
+        priorStackedCount: this.stackedDrawCount || 0
+      };
+    } else {
+      this.pendingWildDraw4Info = null;
+      this.lastWildDraw4Info = null;
     }
 
     // Remove from player's hand and put on discard pile immediately
@@ -483,12 +500,22 @@ export class UnoEngine {
         effectMsg += ` 💥 ${this.players[victim].name} 強制抽 2 張牌並跳過出牌！`;
       }
     } else if (card.value === 'wild_draw4') {
+      if (this.pendingWildDraw4Info) {
+        this.lastWildDraw4Info = this.pendingWildDraw4Info;
+        this.pendingWildDraw4Info = null;
+      }
       if (this.allowStacking) {
         this.stackedDrawCount += 4;
         this.stackedDrawType = 'wild_draw4';
         const nextVictim = this.players[this.getNextTurnIndex(1)];
         nextStep = 1;
         effectMsg += ` 🔥 +4 萬用疊加！目前累積罰抽【+${this.stackedDrawCount} 張】！輪到 ${nextVictim.name}！`;
+      } else if (this.allowChallengeWildDraw4) {
+        this.stackedDrawCount = 4;
+        this.stackedDrawType = 'wild_draw4';
+        const nextVictim = this.players[this.getNextTurnIndex(1)];
+        nextStep = 1;
+        effectMsg += ` 🔥 +4 萬用牌！輪到 ${nextVictim.name}，可質疑出牌合法性或承受罰抽！`;
       } else {
         const victim = this.getNextTurnIndex(1);
         this.drawCardsForPlayer(victim, 4);
@@ -565,12 +592,22 @@ export class UnoEngine {
     let nextStep = 1;
 
     if (card.value === 'wild_draw4') {
+      if (this.pendingWildDraw4Info) {
+        this.lastWildDraw4Info = this.pendingWildDraw4Info;
+        this.pendingWildDraw4Info = null;
+      }
       if (this.allowStacking) {
         this.stackedDrawCount += 4;
         this.stackedDrawType = 'wild_draw4';
         const nextVictim = this.players[this.getNextTurnIndex(1)];
         nextStep = 1;
         effectMsg += ` 🔥 +4 萬用疊加！目前累積罰抽【+${this.stackedDrawCount} 張】！輪到 ${nextVictim.name}！`;
+      } else if (this.allowChallengeWildDraw4) {
+        this.stackedDrawCount = 4;
+        this.stackedDrawType = 'wild_draw4';
+        const nextVictim = this.players[this.getNextTurnIndex(1)];
+        nextStep = 1;
+        effectMsg += ` 🔥 +4 萬用牌！輪到 ${nextVictim.name}，可質疑出牌合法性或承受罰抽！`;
       } else {
         const victim = this.getNextTurnIndex(1);
         this.drawCardsForPlayer(victim, 4);
@@ -700,6 +737,7 @@ export class UnoEngine {
     if (!player) return;
     this.stackedDrawCount = 0;
     this.stackedDrawType = null;
+    this.lastWildDraw4Info = null;
     this.hasDrawnThisTurn = false;
     this.addLog(`💥 ${player.name} 無法疊牌，被迫承受累積罰抽【+${count} 張】！回合結束！`);
     this.advanceTurn(1);
@@ -863,6 +901,87 @@ export class UnoEngine {
     return { success: false, reason: '對方已喊 UNO 或目前不可抓漏！' };
   }
 
+  // Challenge +4 legality rule:
+  // If challenged player had matching color or number/action card before playing +4:
+  // - Challenge succeeds: challenged player takes their own +4 (draws 4 penalty cards).
+  //   Prior stacked '+' is still taken by challenger. If no prior stack, challenger takes 0 and continues turn.
+  // - Challenge fails: challenger draws all stacked penalties + 2 extra cards, and is skipped.
+  challengeWildDraw4(challengerIndex) {
+    if (this.isDealing || this.isChoosingColor || this.gameStatus !== 'playing') {
+      return { success: false, reason: '目前無法進行質疑！' };
+    }
+    if (this.currentTurn !== challengerIndex) {
+      return { success: false, reason: '不是你的回合！' };
+    }
+    if (!this.allowChallengeWildDraw4 || !this.lastWildDraw4Info) {
+      return { success: false, reason: '目前無可質疑的 +4 牌！' };
+    }
+
+    const info = this.lastWildDraw4Info;
+    const challengedPlayer = this.players[info.playerIndex];
+    const challenger = this.players[challengerIndex];
+
+    if (info.hasMatchingCard) {
+      // 質疑成功！被質疑者手牌中明明有可出的對應牌，違規出 +4
+      this.drawCardsForPlayer(info.playerIndex, 4);
+      const priorCount = info.priorStackedCount || 0;
+      
+      let msg = `⚖️ 【${challenger.name}】質疑成功！【${challengedPlayer.name}】手牌中明明有符合的牌 (${info.matchingCardNames.join('、')})，違規出 +4！${challengedPlayer.name} 被罰抽 4 張！`;
+
+      this.lastWildDraw4Info = null;
+      this.stackedDrawCount = 0;
+      this.stackedDrawType = null;
+      this.hasDrawnThisTurn = false;
+
+      if (priorCount > 0) {
+        // 先前累積的 + 仍由質疑者吃下去
+        this.drawCardsForPlayer(challengerIndex, priorCount);
+        msg += ` 但先前累積的罰抽 (+${priorCount} 張) 仍由 ${challenger.name} 承受，回合結束！`;
+        this.addLog(msg);
+        this.advanceTurn(1);
+        return {
+          success: true,
+          challengedWon: false,
+          priorCount,
+          msg
+        };
+      } else {
+        // 無先前累積，質疑者免罰抽，繼續正常出牌
+        msg += ` ${challenger.name} 免受罰抽，回合繼續，請出牌或抽牌！`;
+        this.addLog(msg);
+        this.turnStartTime = Date.now();
+        this.turnDuration = 15;
+        return {
+          success: true,
+          challengedWon: false,
+          priorCount: 0,
+          msg
+        };
+      }
+    } else {
+      // 質疑失敗！被質疑者確實無符合花色或數字的牌 (合法出牌)
+      // 質疑者承受所有累積罰抽 + 2 張額外罰抽，並跳過回合
+      const totalPenalty = (this.stackedDrawCount || 4) + 2;
+      this.drawCardsForPlayer(challengerIndex, totalPenalty);
+
+      const msg = `⚖️ 【${challenger.name}】質疑失敗！【${challengedPlayer.name}】當時確實無符合花色或數字的牌！${challenger.name} 承受所有罰抽加罰 2 張 (共抽 ${totalPenalty} 張) 並跳過回合！`;
+      this.addLog(msg);
+
+      this.lastWildDraw4Info = null;
+      this.stackedDrawCount = 0;
+      this.stackedDrawType = null;
+      this.hasDrawnThisTurn = false;
+      this.advanceTurn(1);
+
+      return {
+        success: true,
+        challengedWon: true,
+        penalty: totalPenalty,
+        msg
+      };
+    }
+  }
+
   calculateScores() {
     let totalPoints = 0;
     if (this.gameMode === '2v2' && this.winner) {
@@ -1007,6 +1126,15 @@ export class UnoEngine {
       stackedDrawCount: this.stackedDrawCount,
       stackedDrawType: this.stackedDrawType,
       allowStacking: this.allowStacking,
+      allowChallengeWildDraw4: !!this.allowChallengeWildDraw4,
+      canChallengeWildDraw4: !!this.allowChallengeWildDraw4 &&
+        !!this.lastWildDraw4Info &&
+        this.currentTurn === playerIndex &&
+        this.stackedDrawType === 'wild_draw4' &&
+        !this.isDealing &&
+        !this.isChoosingColor &&
+        this.gameStatus === 'playing',
+      lastWildDraw4PlayerName: this.lastWildDraw4Info ? this.lastWildDraw4Info.playerName : null,
       gameStatus: this.gameStatus,
       isDealing: !!this.isDealing,
       winner: this.winner ? {

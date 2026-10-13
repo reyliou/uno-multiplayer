@@ -123,6 +123,7 @@ export function GameTableView({
   onPassTurn,
   onCallUno,
   onChallengeUno,
+  onChallengeWildDraw4,
   roomCode
 }) {
   const [muted, setMuted] = useState(false);
@@ -183,7 +184,9 @@ export function GameTableView({
     turnDuration = 15,
     isChoosingColor = false,
     colorChoosingPlayerIndex = null,
-    pendingWildCard = null
+    pendingWildCard = null,
+    canChallengeWildDraw4 = false,
+    lastWildDraw4PlayerName = null
   } = gameState || {};
 
   const is2v2 = gameMode === '2v2';
@@ -226,11 +229,11 @@ export function GameTableView({
     setLocalHasDrawn(false);
   }, [currentTurn]);
 
-  // Auto penalty draw when facing +2/+4 penalty without matching stack cards
+  // Auto penalty draw when facing +2/+4 penalty without matching stack cards (guarded against +4 challenge phase)
   const autoPenaltyTimerRef = useRef(null);
 
   useEffect(() => {
-    if (isMyTurn && !isDealing && stackedDrawCount > 0 && validCards.length === 0) {
+    if (isMyTurn && !isDealing && stackedDrawCount > 0 && validCards.length === 0 && !canChallengeWildDraw4) {
       showToast(`💥 無對應牌可疊！自動承受累積罰抽【+${stackedDrawCount} 張】...`);
       autoPenaltyTimerRef.current = setTimeout(() => {
         handleDrawWithAnimation();
@@ -242,7 +245,7 @@ export function GameTableView({
         }
       };
     }
-  }, [isMyTurn, isDealing, stackedDrawCount, validCards.length]);
+  }, [isMyTurn, isDealing, stackedDrawCount, validCards.length, canChallengeWildDraw4]);
 
   // Calculate Seats (Top, Left, Right)
   const totalP = players.length;
@@ -1124,9 +1127,20 @@ export function GameTableView({
                       </button>
                     )}
 
+                    {/* Challenge Wild Draw 4 Button (Appears when victim faces +4) */}
+                    {isMyTurn && !isChoosingColor && canChallengeWildDraw4 && (
+                      <button
+                        type="button"
+                        onClick={onChallengeWildDraw4}
+                        className="py-1.5 px-4 rounded-full font-black text-xs shadow-xl transition active:scale-95 bg-amber-500 hover:bg-amber-400 text-black border-2 border-yellow-200 animate-bounce flex items-center gap-1.5"
+                      >
+                        <span>⚖️ 質疑 +4！{lastWildDraw4PlayerName ? `(${lastWildDraw4PlayerName})` : ''}</span>
+                      </button>
+                    )}
+
                     {/* Draw Button or Auto Penalty Badge or Continuous Drawing State */}
                     {isMyTurn && !isChoosingColor && (!hasDrawnThisTurn || stackedDrawCount > 0) && (
-                      stackedDrawCount > 0 && validCards.length === 0 ? (
+                      stackedDrawCount > 0 && validCards.length === 0 && !canChallengeWildDraw4 ? (
                         <div className="py-1.5 px-3.5 sm:px-4 rounded-full font-bold text-xs bg-red-950/90 border border-red-500/60 text-red-300 flex items-center gap-1.5 shadow-lg animate-pulse">
                           <span>💥 自動承受罰抽 (+{stackedDrawCount})</span>
                         </div>
@@ -1142,7 +1156,7 @@ export function GameTableView({
                           onClick={handleDrawWithAnimation}
                           className="py-1.5 px-4 rounded-full font-extrabold text-xs shadow-lg transition duration-150 flex items-center gap-1 bg-gradient-to-r from-sky-600 to-sky-700 hover:from-sky-500 hover:to-sky-600 text-white active:scale-95 disabled:opacity-50"
                         >
-                          <span>🎴 抽牌</span>
+                          <span>{stackedDrawCount > 0 ? '💥 承受罰抽' : '🎴 抽牌'}</span>
                           {drawRule === 'draw_until_playable' && stackedDrawCount === 0 && (
                             <span className="text-yellow-300 text-[10px] font-bold">(抽到能出)</span>
                           )}

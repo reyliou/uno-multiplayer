@@ -14,7 +14,8 @@ import {
   UserCheck,
   ArrowLeftRight,
   Trophy,
-  Layers
+  Layers,
+  Scale
 } from 'lucide-react';
 
 export function LobbyView({
@@ -23,10 +24,12 @@ export function LobbyView({
   players = [],
   gameMode = 'ffa',
   allowStacking,
+  allowChallengeWildDraw4 = true,
   targetScore = 500,
   drawRule = 'draw_one',
   onToggleAi,
   onToggleStacking,
+  onToggleChallengeRule,
   onSetTargetScore,
   onSetDrawRule,
   onSetGameMode,
@@ -224,8 +227,8 @@ export function LobbyView({
             )}
           </div>
 
-          {/* Row 4: Custom House Rules (抽牌規則 & 疊牌規則) */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs pt-1">
+          {/* Row 4: Custom House Rules (抽牌規則 & 疊牌規則 & 質疑規則) */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs pt-1">
             {/* Draw Rule */}
             <div className="flex items-center justify-between p-2 rounded-xl bg-emerald-950/40 border border-emerald-500/20">
               <span className="text-emerald-300/80 flex items-center gap-1">
@@ -237,38 +240,38 @@ export function LobbyView({
                   <button
                     type="button"
                     onClick={() => onSetDrawRule('draw_one')}
-                    className={`px-2 py-0.5 rounded text-[10px] font-bold transition ${
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition ${
                       drawRule === 'draw_one'
                         ? 'bg-sky-500 text-white'
                         : 'bg-black/40 text-gray-400 hover:text-white'
                     }`}
                   >
-                    只抽 1 張
+                    抽1張
                   </button>
                   <button
                     type="button"
                     onClick={() => onSetDrawRule('draw_until_playable')}
-                    className={`px-2 py-0.5 rounded text-[10px] font-bold transition ${
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition ${
                       drawRule === 'draw_until_playable'
                         ? 'bg-sky-500 text-white'
                         : 'bg-black/40 text-gray-400 hover:text-white'
                     }`}
                   >
-                    抽到能出為止
+                    抽到能出
                   </button>
                 </div>
               ) : (
                 <span className="font-bold text-sky-300">
-                  {drawRule === 'draw_until_playable' ? '抽到能出為止' : '只抽 1 張'}
+                  {drawRule === 'draw_until_playable' ? '抽到能出' : '抽 1 張'}
                 </span>
               )}
             </div>
 
             {/* Stacking Rule */}
             <div className="flex items-center justify-between p-2 rounded-xl bg-emerald-950/40 border border-emerald-500/20">
-              <span className="text-emerald-300/80 flex items-center gap-1">
+              <span className="text-emerald-300/80 flex items-center gap-1" title="+2疊+2、+4疊+4，不可混疊">
                 <Flame className="w-3.5 h-3.5 text-amber-400" />
-                +牌疊加 (+2/+4)：
+                +牌同類疊加：
               </span>
               {isHost ? (
                 <button
@@ -285,6 +288,31 @@ export function LobbyView({
               ) : (
                 <span className="font-bold text-amber-400">
                   {allowStacking ? '啟用' : '關閉'}
+                </span>
+              )}
+            </div>
+
+            {/* Challenge Wild Draw 4 Rule */}
+            <div className="flex items-center justify-between p-2 rounded-xl bg-emerald-950/40 border border-emerald-500/20">
+              <span className="text-emerald-300/80 flex items-center gap-1" title="出+4時若手中已有該色或該數字，可被下家質疑">
+                <Scale className="w-3.5 h-3.5 text-amber-300" />
+                質疑 +4 規則：
+              </span>
+              {isHost ? (
+                <button
+                  type="button"
+                  onClick={onToggleChallengeRule}
+                  className={`px-2.5 py-0.5 rounded text-[10px] font-bold transition ${
+                    allowChallengeWildDraw4
+                      ? 'bg-amber-500 text-black'
+                      : 'bg-gray-700 text-gray-300'
+                  }`}
+                >
+                  {allowChallengeWildDraw4 ? '啟用' : '關閉'}
+                </button>
+              ) : (
+                <span className="font-bold text-amber-400">
+                  {allowChallengeWildDraw4 ? '啟用' : '關閉'}
                 </span>
               )}
             </div>
