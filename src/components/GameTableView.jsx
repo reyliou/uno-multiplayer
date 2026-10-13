@@ -246,12 +246,10 @@ export function GameTableView({
 
   // Calculate Seats (Top, Left, Right)
   const totalP = players.length;
-  // Left: previous player or (myIndex + 3) % 4
-  const leftSeatIdx = totalP >= 3 ? (myIndex + (totalP === 4 ? 3 : 2)) % totalP : (totalP === 2 ? 1 : null);
-  // Top: (myIndex + 2) % 4 (In 2V2, this is teammate)
-  const topSeatIdx = totalP >= 3 ? (myIndex + (totalP === 4 ? 2 : 1)) % totalP : null;
-  // Right: (myIndex + 1) % 4
-  const rightSeatIdx = totalP >= 4 ? (myIndex + 1) % totalP : null;
+  // Clockwise (順時針): Turn advances to your LEFT (下家: +1), Teammate/Opposite (+2) is TOP, Previous (+3) is RIGHT (上家)
+  const leftSeatIdx = totalP === 4 ? (myIndex + 1) % 4 : (totalP === 3 ? (myIndex + 1) % 3 : null);
+  const topSeatIdx = totalP === 4 ? (myIndex + 2) % 4 : (totalP === 3 ? (myIndex + 2) % 3 : (totalP === 2 ? (myIndex + 1) % 2 : null));
+  const rightSeatIdx = totalP === 4 ? (myIndex + 3) % 4 : null;
 
   const leftPlayer = leftSeatIdx !== null ? players[leftSeatIdx] : null;
   const topPlayer = topSeatIdx !== null ? players[topSeatIdx] : null;
