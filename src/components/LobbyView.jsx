@@ -105,11 +105,20 @@ export function LobbyView({
             </button>
             <button
               type="button"
-              onClick={onLeaveRoom}
-              title="離開房間"
-              className="p-2 rounded-xl bg-red-950/60 hover:bg-red-900 text-red-300 border border-red-500/30 transition"
+              onClick={() => {
+                if (isHost) {
+                  if (window.confirm('確定要解散房間嗎？解散後所有玩家將自動返回首頁。')) {
+                    onLeaveRoom();
+                  }
+                } else {
+                  onLeaveRoom();
+                }
+              }}
+              title={isHost ? '解散房間' : '離開房間'}
+              className="py-2 px-3 rounded-xl bg-red-950/70 hover:bg-red-900 text-red-300 border border-red-500/40 font-bold text-xs transition flex items-center gap-1.5"
             >
               <LogOut className="w-4 h-4" />
+              <span>{isHost ? '解散房間' : '離開房間'}</span>
             </button>
           </div>
         </div>

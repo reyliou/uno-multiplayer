@@ -13,7 +13,8 @@ import {
   Check,
   UserCheck,
   Swords,
-  Sparkles
+  Sparkles,
+  LogOut
 } from 'lucide-react';
 import { soundManager } from '../services/sound';
 import { cardAnimationService } from '../services/animation';
@@ -124,6 +125,8 @@ export function GameTableView({
   onCallUno,
   onChallengeUno,
   onChallengeWildDraw4,
+  isHost = false,
+  onLeaveRoom,
   roomCode
 }) {
   const [muted, setMuted] = useState(false);
@@ -651,6 +654,25 @@ export function GameTableView({
           >
             <History className="w-4 h-4" />
             <span className="hidden sm:inline">對局紀錄</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (isHost) {
+                if (window.confirm('確定要解散房間嗎？對局將立即結束，所有玩家將返回首頁。')) {
+                  if (onLeaveRoom) onLeaveRoom();
+                }
+              } else {
+                if (window.confirm('確定要離開對局嗎？你將退出並轉由電腦託管。')) {
+                  if (onLeaveRoom) onLeaveRoom();
+                }
+              }
+            }}
+            title={isHost ? '解散房間' : '離開對局'}
+            className="p-1.5 px-2.5 rounded-xl bg-red-950/70 hover:bg-red-900 border border-red-500/30 text-red-300 transition flex items-center gap-1 text-xs font-bold"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">{isHost ? '解散' : '離開'}</span>
           </button>
         </div>
       </header>

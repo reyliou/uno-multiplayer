@@ -23,6 +23,7 @@ export class P2PNetwork {
     this.onStateUpdate = null;
     this.onConnectionStatus = null;
     this.onError = null;
+    this.onRoomDisbanded = null;
 
     // Lobby player list (Host & Client)
     this.lobbyPlayers = [];
@@ -38,6 +39,7 @@ export class P2PNetwork {
     this.isContinuousDrawing = false;
     this.continuousDrawTimer = null;
     this.dealTimer = null;
+    this.lobbyIdleTimer = null;
   }
 
   static generateRoomCode() {
@@ -48,6 +50,40 @@ export class P2PNetwork {
   formatPeerId(code) {
     const clean = code.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
     return `uno-p2p-${clean}`;
+  }
+
+  resetLobbyIdleTimer() {
+    if (this.lobbyIdleTimer) {
+      clearTimeout(this.lobbyIdleTimer);
+      this.lobbyIdleTimer = null;
+    }
+    // Auto-disband room after 15 minutes of idle in lobby
+    if (this.isHost && !this.gameStarted) {
+      this.lobbyIdleTimer = setTimeout(() => {
+        const msg = '房間在大廳閒置超過 15 分鐘無操作，系統已自動解散房間！';
+        this.disbandRoom(msg);
+        if (this.onRoomDisbanded) this.onRoomDisbanded(msg);
+      }, 15 * 60 * 1000);
+    }
+  }
+
+  disbandRoom(reason = '房主已解散房間') {
+    if (this.isHost) {
+      const packet = {
+        type: 'ROOM_DISBANDED',
+        reason
+      };
+      for (const guest of this.guestConns.values()) {
+        if (guest.conn && guest.conn.open) {
+          try {
+            guest.conn.send(packet);
+          } catch (e) {
+            console.warn('Error sending disband packet to guest:', e);
+          }
+        }
+      }
+    }
+    this.disconnect();
   }
 
   // ==========================================
@@ -62,6 +98,7 @@ export class P2PNetwork {
     this.gameMode = gameMode;
     this.gameStarted = false;
     this.guestConns.clear();
+    this.resetLobbyIdleTimer();
     if (this.dealTimer) {
       clearTimeout(this.dealTimer);
       this.dealTimer = null;
@@ -562,6 +599,10 @@ export class P2PNetwork {
     });
 
     this.gameStarted = true;
+    if (this.lobbyIdleTimer) {
+      clearTimeout(this.lobbyIdleTimer);
+      this.lobbyIdleTimer = null;
+    }
 
     // Create authoritative engine with 2v2 support & custom rules
     this.engine = new UnoEngine(
@@ -658,6 +699,7 @@ export class P2PNetwork {
       this.turnTimeoutTimer = null;
     }
     this.gameStarted = false;
+    this.resetLobbyIdleTimer();
     if (this.engine && this.engine.players) {
       this.engine.players.forEach(ep => {
         const lp = this.lobbyPlayers.find(p => p.id === ep.id);
@@ -1209,6 +1251,7 @@ export class P2PNetwork {
 
   // Broadcasts
   broadcastLobbyUpdate() {
+    this.resetLobbyIdleTimer();
     const data = {
       type: 'LOBBY_UPDATE',
       players: this.lobbyPlayers,
@@ -1302,8 +1345,13 @@ export class P2PNetwork {
       });
 
       this.hostConn.on('close', () => {
-        if (this.onError) this.onError('與房主之連線已中斷！');
+        if (this.onRoomDisbanded) {
+          this.onRoomDisbanded('房主已離開或斷線，房間已自動解散！');
+        } else if (this.onError) {
+          this.onError('與房主之連線已中斷，房間已解散！');
+        }
         if (this.onConnectionStatus) this.onConnectionStatus({ status: 'disconnected', isHost: false });
+        this.disconnect();
       });
 
       this.hostConn.on('error', (err) => {
@@ -1322,6 +1370,14 @@ export class P2PNetwork {
     if (!packet || !packet.type) return;
 
     switch (packet.type) {
+      case 'ROOM_DISBANDED':
+        if (this.onRoomDisbanded) {
+          this.onRoomDisbanded(packet.reason || '房主已解散房間！');
+        } else if (this.onError) {
+          this.onError(packet.reason || '房主已解散房間！');
+        }
+        this.disconnect();
+        break;
       case 'JOIN_ACCEPTED':
         this.mySlotIndex = packet.slotIndex;
         this.gameMode = packet.gameMode || 'ffa';
@@ -1435,6 +1491,10 @@ export class P2PNetwork {
 
   disconnect() {
     this.finishDrawingCleanup();
+    if (this.lobbyIdleTimer) {
+      clearTimeout(this.lobbyIdleTimer);
+      this.lobbyIdleTimer = null;
+    }
     if (this.aiTimer) {
       clearTimeout(this.aiTimer);
       this.aiTimer = null;

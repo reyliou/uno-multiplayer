@@ -46,6 +46,15 @@ export default function App() {
       setView('lobby');
     };
 
+    p2pNetwork.onRoomDisbanded = (reason) => {
+      setErrorMessage(reason || '房主已解散房間！');
+      setGameState(null);
+      setLobbyPlayers([]);
+      setView('home');
+      window.location.hash = '';
+      setTimeout(() => setErrorMessage(''), 5000);
+    };
+
     p2pNetwork.onError = (msg) => {
       setErrorMessage(msg);
       setTimeout(() => setErrorMessage(''), 5000);
@@ -55,6 +64,19 @@ export default function App() {
       p2pNetwork.disconnect();
     };
   }, []);
+
+  // Auto-disband room if host closes window/tab or refreshes
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (isHost && p2pNetwork.isHost) {
+        p2pNetwork.disbandRoom('房主已關閉頁面，房間已自動解散！');
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [isHost]);
 
   // Host creates room
   const handleCreateRoom = (code, hostName, stacking, mode = 'ffa') => {
@@ -138,9 +160,13 @@ export default function App() {
     p2pNetwork.swapSlots(idxA, idxB);
   };
 
-  // Leave room
+  // Leave or disband room
   const handleLeaveRoom = () => {
-    p2pNetwork.disconnect();
+    if (isHost) {
+      p2pNetwork.disbandRoom('房主已解散房間！');
+    } else {
+      p2pNetwork.disconnect();
+    }
     setGameState(null);
     setLobbyPlayers([]);
     setView('home');
@@ -256,6 +282,7 @@ export default function App() {
         <GameTableView
           gameState={gameState}
           roomCode={roomCode}
+          isHost={isHost}
           onPlayCard={handlePlayCard}
           onChooseColor={handleChooseColor}
           onDrawCard={handleDrawCard}
@@ -263,6 +290,7 @@ export default function App() {
           onCallUno={handleCallUno}
           onChallengeUno={handleChallengeUno}
           onChallengeWildDraw4={handleChallengeWildDraw4}
+          onLeaveRoom={handleLeaveRoom}
         />
       )}
 
