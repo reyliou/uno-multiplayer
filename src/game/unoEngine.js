@@ -1,0 +1,1013 @@
+// unoEngine.js - Authoritative UNO Game Engine with Stacking, State Masking & 2v2 Team Mode
+
+export class UnoEngine {
+  constructor(playerCount = 4, customPlayers = null, allowStacking = true, gameMode = 'ffa', options = {}) {
+    this.gameMode = gameMode; // 'ffa' | '2v2'
+    this.playerCount = this.gameMode === '2v2' ? 4 : Math.max(2, Math.min(4, playerCount));
+    this.colors = ['red', 'yellow', 'green', 'blue'];
+    this.colorHex = {
+      red: '#ef4444',
+      yellow: '#eab308',
+      green: '#22c55e',
+      blue: '#3b82f6',
+      wild: '#1f2937'
+    };
+    this.colorNames = {
+      red: '紅色',
+      yellow: '黃色',
+      green: '綠色',
+      blue: '藍色',
+      wild: '黑色萬用'
+    };
+
+    this.allowStacking = allowStacking;
+    this.customPlayers = customPlayers;
+    this.targetScore = options.targetScore !== undefined ? options.targetScore : 500; // 0 = casual/no score limit
+    this.drawRule = options.drawRule || 'draw_one'; // 'draw_one' | 'draw_until_playable'
+    this.isMatchOver = false;
+    this.matchWinner = null;
+    this.lastRoundPoints = 0;
+    this.reset();
+  }
+
+  reset() {
+    this.drawPile = this.generateDeck();
+    this.shuffle(this.drawPile);
+    this.discardPile = [];
+
+    // Stacking penalty pool
+    this.stackedDrawCount = 0;
+    this.stackedDrawType = null; // 'draw2' or 'wild_draw4'
+
+    // Continuous drawing state
+    this.isContinuousDrawing = false;
+    this.drawingPlayerIndex = null;
+    this.drawingStepCount = 0;
+
+    // Preserve existing scores across rounds if players already exist
+    const existingScores = this.players ? this.players.map(p => p.score) : null;
+
+    // Players setup
+    this.players = [];
+    for (let i = 0; i < this.playerCount; i++) {
+      const pInfo = this.customPlayers ? this.customPlayers[i] : null;
+      const teamId = this.gameMode === '2v2' ? (i % 2 === 0 ? 'team_a' : 'team_b') : null;
+      const teamName = this.gameMode === '2v2' ? (i % 2 === 0 ? '金隊 (隊伍 A)' : '藍隊 (隊伍 B)') : null;
+      const teammateIndex = this.gameMode === '2v2' ? (i + 2) % 4 : null;
+
+      const score = existingScores && existingScores[i] !== undefined
+        ? existingScores[i]
+        : (pInfo && pInfo.score ? pInfo.score : 0);
+
+      this.players.push({
+        id: i,
+        name: pInfo ? pInfo.name : (i === 0 ? '房主' : `玩家 ${i + 1}`),
+        isAi: pInfo ? !!pInfo.isAi : (i !== 0),
+        peerId: pInfo ? pInfo.peerId : null,
+        teamId,
+        teamName,
+        teammateIndex,
+        hand: [],
+        calledUno: false,
+        unoVulnerable: false,
+        pendingUnoCall: false,
+        score
+      });
+    }
+
+    // Deal 7 cards to each player
+    for (let r = 0; r < 7; r++) {
+      for (let p = 0; p < this.playerCount; p++) {
+        this.players[p].hand.push(this.drawCardRaw());
+      }
+    }
+
+    // Flip first card (must not be Wild Draw 4)
+    let firstCard = this.drawCardRaw();
+    while (firstCard.value === 'wild_draw4') {
+      this.drawPile.unshift(firstCard);
+      this.shuffle(this.drawPile);
+      firstCard = this.drawCardRaw();
+    }
+    this.discardPile.push(firstCard);
+
+    this.currentColor = firstCard.color === 'wild' ? 'red' : firstCard.color;
+    if (firstCard.color === 'wild') {
+      firstCard.chosenColor = this.currentColor;
+    }
+    this.currentValue = firstCard.value;
+    this.direction = 1; // 1 = clockwise, -1 = counter-clockwise
+    this.currentTurn = 0;
+    this.gameStatus = 'playing';
+    this.isDealing = true; // Opening deal phase
+    this.winner = null;
+    this.log = [];
+    this.hasDrawnThisTurn = false;
+    this.turnDuration = 15;
+    this.turnStartTime = null;
+    this.isChoosingColor = false;
+    this.colorChoosingPlayerIndex = null;
+    this.pendingWildCard = null;
+
+    // Apply initial card action
+    this.applyInitialCardAction(firstCard);
+  }
+
+  finishDealing() {
+    this.isDealing = false;
+    this.turnStartTime = Date.now();
+    this.addLog(`🎴 發牌完畢！輪到【${this.players[this.currentTurn]?.name || '第 1 位玩家'}】行動。`);
+    return { success: true };
+  }
+
+  applyInitialCardAction(card) {
+    if (card.value === 'skip') {
+      this.addLog(`首張牌是【禁止牌】，跳過 ${this.players[0].name}！`);
+      this.currentTurn = this.getNextTurnIndex();
+    } else if (card.value === 'reverse') {
+      if (this.playerCount === 2) {
+        this.addLog(`首張牌是【反轉牌】(兩人局視為跳過)，跳過 ${this.players[0].name}！`);
+        this.currentTurn = this.getNextTurnIndex();
+      } else {
+        this.direction *= -1;
+        this.addLog(`首張牌是【反轉牌】，轉向為逆時針！`);
+      }
+    } else if (card.value === 'draw2') {
+      if (this.allowStacking) {
+        this.stackedDrawCount = 2;
+        this.stackedDrawType = 'draw2';
+        this.addLog(`首張牌是【+2 罰抽牌】，目前累積 +2 張！輪到 ${this.players[0].name}，可出 +2 疊牌或抽牌！`);
+      } else {
+        this.addLog(`首張牌是【+2 罰抽牌】，${this.players[0].name} 抽 2 張牌且跳過出牌！`);
+        this.drawCardsForPlayer(0, 2);
+        this.currentTurn = this.getNextTurnIndex();
+      }
+    } else if (card.value === 'wild') {
+      this.addLog(`首張牌是【萬用牌】，起始玩家 ${this.players[0].name} 可自選任意顏色！`);
+    }
+  }
+
+  generateDeck() {
+    const deck = [];
+    let idCounter = 1;
+
+    for (const color of this.colors) {
+      // 1x '0'
+      deck.push({
+        id: `c_${idCounter++}`,
+        color,
+        value: '0',
+        assetKey: `${color}_0`,
+        points: 0
+      });
+
+      // 2x '1'..'9'
+      for (let n = 1; n <= 9; n++) {
+        const val = n.toString();
+        deck.push({
+          id: `c_${idCounter++}`,
+          color,
+          value: val,
+          assetKey: `${color}_${val}`,
+          points: n
+        });
+        deck.push({
+          id: `c_${idCounter++}`,
+          color,
+          value: val,
+          assetKey: `${color}_${val}`,
+          points: n
+        });
+      }
+
+      // 2x Skip, 2x Reverse, 2x Draw 2
+      ['skip', 'reverse', 'draw2'].forEach(action => {
+        deck.push({
+          id: `c_${idCounter++}`,
+          color,
+          value: action,
+          assetKey: `${color}_${action}`,
+          points: 20
+        });
+        deck.push({
+          id: `c_${idCounter++}`,
+          color,
+          value: action,
+          assetKey: `${color}_${action}`,
+          points: 20
+        });
+      });
+    }
+
+    // 4x Wild, 4x Wild Draw 4
+    for (let i = 0; i < 4; i++) {
+      deck.push({
+        id: `c_${idCounter++}`,
+        color: 'wild',
+        value: 'wild',
+        assetKey: 'wild',
+        points: 50
+      });
+      deck.push({
+        id: `c_${idCounter++}`,
+        color: 'wild',
+        value: 'wild_draw4',
+        assetKey: 'wild_draw4',
+        points: 50
+      });
+    }
+
+    return deck;
+  }
+
+  shuffle(array) {
+    for (let i = array.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [array[i], array[j]] = [array[j], array[i]];
+    }
+    return array;
+  }
+
+  drawCardRaw() {
+    if (this.drawPile.length === 0) {
+      if (this.discardPile.length <= 1) {
+        this.drawPile = this.generateDeck();
+        this.shuffle(this.drawPile);
+      } else {
+        const top = this.discardPile.pop();
+        // Reset all recycled cards so wild cards return to pristine uncolored state
+        const recycledCards = this.discardPile.map((c) => {
+          if (c.color === 'wild') {
+            const { chosenColor, ...rest } = c;
+            return { ...rest, displayAssetKey: c.assetKey };
+          }
+          return { ...c, displayAssetKey: c.assetKey };
+        });
+        this.drawPile = this.shuffle(recycledCards);
+        this.discardPile = [top];
+        this.addLog(`牌庫抽盡，棄牌堆重新洗牌放入抽牌堆！`);
+      }
+    }
+    const card = this.drawPile.pop();
+    if (card && card.color === 'wild') {
+      delete card.chosenColor;
+      card.displayAssetKey = card.assetKey;
+    }
+    return card;
+  }
+
+  drawCardsForPlayer(playerIndex, count) {
+    const drawn = [];
+    for (let i = 0; i < count; i++) {
+      const card = this.drawCardRaw();
+      this.players[playerIndex].hand.push(card);
+      drawn.push(card);
+    }
+    if (this.players[playerIndex].hand.length > 1) {
+      this.players[playerIndex].calledUno = false;
+      this.players[playerIndex].unoVulnerable = false;
+      this.players[playerIndex].pendingUnoCall = false;
+    }
+    return drawn;
+  }
+
+  getTopCard() {
+    return this.discardPile[this.discardPile.length - 1];
+  }
+
+  canPlayCard(card) {
+    if (!card) return false;
+    if (this.isChoosingColor) return false;
+
+    // ACTIVE STACK PENALTY: Only stacking cards are allowed!
+    if (this.stackedDrawCount > 0) {
+      if (this.stackedDrawType === 'draw2') {
+        return card.value === 'draw2' || card.value === 'wild_draw4';
+      } else if (this.stackedDrawType === 'wild_draw4') {
+        return card.value === 'wild_draw4';
+      }
+      return false;
+    }
+
+    // Normal play rules:
+    if (card.color === 'wild') return true;
+    if (card.color === this.currentColor) return true;
+    if (card.value === this.currentValue) return true;
+    return false;
+  }
+
+  getValidCardsForPlayer(playerIndex) {
+    const p = this.players[playerIndex];
+    if (!p) return [];
+    return p.hand.filter(c => this.canPlayCard(c));
+  }
+
+  getNextTurnIndex(step = 1) {
+    let next = (this.currentTurn + this.direction * step) % this.playerCount;
+    if (next < 0) next += this.playerCount;
+    return next;
+  }
+
+  // Find the color that the player has the most cards of in their remaining hand
+  getBestColorForPlayer(playerIndex) {
+    const player = this.players[playerIndex];
+    if (!player || player.hand.length === 0) return 'red';
+    const counts = { red: 0, yellow: 0, green: 0, blue: 0 };
+    player.hand.forEach(c => {
+      if (counts[c.color] !== undefined) counts[c.color]++;
+    });
+    let best = 'red';
+    let maxC = -1;
+    for (const [col, count] of Object.entries(counts)) {
+      if (count > maxC) {
+        maxC = count;
+        best = col;
+      }
+    }
+    return best;
+  }
+
+  // Play a card
+  playCard(playerIndex, cardId, chosenColor = null) {
+    if (this.isDealing) {
+      return { success: false, reason: '開局發牌中，尚未能出牌！' };
+    }
+    if (this.isChoosingColor) {
+      return { success: false, reason: '正在等待選擇顏色中！' };
+    }
+    if (this.currentTurn !== playerIndex) {
+      return { success: false, reason: '不是你的回合！' };
+    }
+
+    const player = this.players[playerIndex];
+    const cardIdx = player.hand.findIndex(c => c.id === cardId);
+    if (cardIdx === -1) {
+      return { success: false, reason: '找不到這張牌！' };
+    }
+
+    const card = player.hand[cardIdx];
+    if (!this.canPlayCard(card)) {
+      return { success: false, reason: '此牌不符合出牌規則！' };
+    }
+
+    // Remove from player's hand and put on discard pile immediately
+    player.hand.splice(cardIdx, 1);
+    this.discardPile.push(card);
+
+    // UNO State Management (When down to 1 card)
+    let needsUnoGracePeriod = false;
+    if (player.hand.length === 1) {
+      if (player.calledUno) {
+        player.unoVulnerable = false;
+        player.pendingUnoCall = false;
+      } else {
+        if (player.isAi) {
+          if (Math.random() < 0.88) {
+            player.calledUno = true;
+            player.unoVulnerable = false;
+          } else {
+            player.calledUno = false;
+            player.unoVulnerable = true;
+          }
+        } else {
+          needsUnoGracePeriod = true;
+          player.pendingUnoCall = true;
+          player.unoVulnerable = false;
+        }
+      }
+    } else {
+      player.calledUno = false;
+      player.unoVulnerable = false;
+      player.pendingUnoCall = false;
+    }
+
+    // Check Win Condition
+    if (player.hand.length === 0) {
+      if (card.color === 'wild') {
+        const winColor = chosenColor || this.getBestColorForPlayer(playerIndex);
+        this.currentColor = winColor;
+        card.chosenColor = winColor;
+        card.displayAssetKey = card.value === 'wild_draw4' ? `wild_draw4_${winColor}` : `wild_${winColor}`;
+      }
+      this.gameStatus = 'game_over';
+      this.winner = player;
+      this.calculateScores();
+
+      const winMsg = this.gameMode === '2v2'
+        ? `🎉 恭喜！${player.name} 出完手牌，【${player.teamName}】贏得 2V2 勝利！`
+        : `🎉 恭喜！${player.name} 出完所有手牌，贏得本局勝利！`;
+      this.addLog(winMsg);
+
+      this.lastAction = {
+        type: 'play',
+        playerId: playerIndex,
+        playerName: player.name,
+        card: { ...card },
+        timestamp: Date.now()
+      };
+
+      return {
+        success: true,
+        gameOver: true,
+        winner: player,
+        card,
+        effectMsg: ''
+      };
+    }
+
+    // If card is wild and no chosenColor is provided yet (Human player): enter 6-second color selection phase!
+    if (card.color === 'wild' && !chosenColor) {
+      if (player.isAi) {
+        chosenColor = this.getBestColorForPlayer(playerIndex);
+      } else {
+        this.isChoosingColor = true;
+        this.colorChoosingPlayerIndex = playerIndex;
+        this.pendingWildCard = card;
+        this.currentColor = 'wild';
+        this.currentValue = card.value;
+        card.displayAssetKey = card.assetKey;
+        this.turnStartTime = Date.now();
+        this.turnDuration = 6; // 6 SECONDS EXTRA FOR COLOR SELECTION!
+
+        this.addLog(`🌈 ${player.name} 打出了【${this.getCardDisplayName(card)}】！進入選色階段 (限時 6 秒)...`);
+
+        this.lastAction = {
+          type: 'play',
+          playerId: playerIndex,
+          playerName: player.name,
+          card: { ...card },
+          timestamp: Date.now()
+        };
+
+        return {
+          success: true,
+          isChoosingColor: true,
+          card,
+          needsUnoGracePeriod
+        };
+      }
+    }
+
+    let effectMsg = '';
+    let nextStep = 1;
+
+    // Apply color & transformed visual asset key
+    if (card.color === 'wild') {
+      this.currentColor = chosenColor || 'red';
+      this.currentValue = card.value;
+      card.chosenColor = this.currentColor;
+      card.displayAssetKey = card.value === 'wild_draw4' ? `wild_draw4_${this.currentColor}` : `wild_${this.currentColor}`;
+      effectMsg = `指定顏色為【${this.colorNames[this.currentColor]}】！`;
+    } else {
+      this.currentColor = card.color;
+      this.currentValue = card.value;
+      card.displayAssetKey = card.assetKey;
+    }
+
+    // Special card actions & STACKING RULE
+    if (card.value === 'draw2') {
+      if (this.allowStacking) {
+        this.stackedDrawCount += 2;
+        this.stackedDrawType = 'draw2';
+        const nextVictim = this.players[this.getNextTurnIndex(1)];
+        nextStep = 1;
+        effectMsg += ` ⚡ +2 疊加！目前累積罰抽【+${this.stackedDrawCount} 張】！輪到 ${nextVictim.name}！`;
+      } else {
+        const victim = this.getNextTurnIndex(1);
+        this.drawCardsForPlayer(victim, 2);
+        nextStep = 2;
+        effectMsg += ` 💥 ${this.players[victim].name} 強制抽 2 張牌並跳過出牌！`;
+      }
+    } else if (card.value === 'wild_draw4') {
+      if (this.allowStacking) {
+        this.stackedDrawCount += 4;
+        this.stackedDrawType = 'wild_draw4';
+        const nextVictim = this.players[this.getNextTurnIndex(1)];
+        nextStep = 1;
+        effectMsg += ` 🔥 +4 萬用疊加！目前累積罰抽【+${this.stackedDrawCount} 張】！輪到 ${nextVictim.name}！`;
+      } else {
+        const victim = this.getNextTurnIndex(1);
+        this.drawCardsForPlayer(victim, 4);
+        nextStep = 2;
+        effectMsg += ` 🔥 ${this.players[victim].name} 強制抽 4 張牌並跳過出牌！`;
+      }
+    }
+
+    let skippedPlayer = null;
+    if (card.value === 'skip') {
+      skippedPlayer = this.players[this.getNextTurnIndex(1)];
+      nextStep = 2;
+      effectMsg += ` 🚫 跳過 ${skippedPlayer.name} 的回合！`;
+    } else if (card.value === 'reverse') {
+      if (this.playerCount === 2) {
+        nextStep = 2;
+        effectMsg += ` 🔄 兩人局反轉牌視同跳過！`;
+      } else {
+        this.direction *= -1;
+        effectMsg += ` 🔄 出牌方向反轉為${this.direction === 1 ? '順時針' : '逆時針'}！`;
+      }
+    }
+
+    this.addLog(`${player.name} 打出【${this.getCardDisplayName(card)}】。${effectMsg}`);
+
+    this.lastAction = {
+      type: 'play',
+      playerId: playerIndex,
+      playerName: player.name,
+      card: { ...card },
+      skippedPlayerId: skippedPlayer ? skippedPlayer.id : null,
+      skippedPlayerName: skippedPlayer ? skippedPlayer.name : null,
+      timestamp: Date.now()
+    };
+
+    // Move to next turn
+    this.hasDrawnThisTurn = false;
+    this.currentTurn = this.getNextTurnIndex(nextStep);
+    this.turnStartTime = Date.now();
+    this.turnDuration = 15;
+
+    return {
+      success: true,
+      card,
+      effectMsg,
+      needsUnoGracePeriod,
+      stackedCount: this.stackedDrawCount,
+      nextPlayer: this.players[this.currentTurn]
+    };
+  }
+
+  confirmWildColor(playerIndex, chosenColor) {
+    if (!this.isChoosingColor || this.colorChoosingPlayerIndex !== playerIndex) {
+      return { success: false, reason: '目前非選色階段或不是你的選色回合！' };
+    }
+
+    const player = this.players[playerIndex];
+    const card = this.pendingWildCard || this.getTopCard();
+    if (!card) return { success: false };
+
+    const validColors = ['red', 'yellow', 'green', 'blue'];
+    const finalColor = validColors.includes(chosenColor) ? chosenColor : this.getBestColorForPlayer(playerIndex);
+
+    this.currentColor = finalColor;
+    this.currentValue = card.value;
+    card.chosenColor = finalColor;
+    card.displayAssetKey = card.value === 'wild_draw4' ? `wild_draw4_${finalColor}` : `wild_${finalColor}`;
+
+    this.isChoosingColor = false;
+    this.colorChoosingPlayerIndex = null;
+    this.pendingWildCard = null;
+
+    let effectMsg = `指定顏色為【${this.colorNames[finalColor]}】！`;
+    let nextStep = 1;
+
+    if (card.value === 'wild_draw4') {
+      if (this.allowStacking) {
+        this.stackedDrawCount += 4;
+        this.stackedDrawType = 'wild_draw4';
+        const nextVictim = this.players[this.getNextTurnIndex(1)];
+        nextStep = 1;
+        effectMsg += ` 🔥 +4 萬用疊加！目前累積罰抽【+${this.stackedDrawCount} 張】！輪到 ${nextVictim.name}！`;
+      } else {
+        const victim = this.getNextTurnIndex(1);
+        this.drawCardsForPlayer(victim, 4);
+        nextStep = 2;
+        effectMsg += ` 🔥 ${this.players[victim].name} 強制抽 4 張牌並跳過出牌！`;
+      }
+    }
+
+    this.addLog(`${player.name} ${effectMsg}`);
+
+    this.lastAction = {
+      type: 'color_chosen',
+      playerId: playerIndex,
+      playerName: player.name,
+      chosenColor: finalColor,
+      card: { ...card },
+      timestamp: Date.now()
+    };
+
+    // Move to next turn with fresh 15s timer
+    this.hasDrawnThisTurn = false;
+    this.currentTurn = this.getNextTurnIndex(nextStep);
+    this.turnStartTime = Date.now();
+    this.turnDuration = 15;
+
+    return {
+      success: true,
+      card,
+      chosenColor: finalColor,
+      nextPlayer: this.players[this.currentTurn]
+    };
+  }
+
+  playerDrawCard(playerIndex) {
+    if (this.isDealing) {
+      return { success: false, reason: '開局發牌中，尚未能抽牌！' };
+    }
+    if (this.isChoosingColor) {
+      return { success: false, reason: '正在等待選擇顏色中！' };
+    }
+    if (this.currentTurn !== playerIndex) {
+      return { success: false, reason: '不是你的回合！' };
+    }
+    if (this.hasDrawnThisTurn) {
+      return { success: false, reason: '本回合已經主動抽過牌了，無法重複抽牌！' };
+    }
+
+    // Normal draw of 1 card
+    const card = this.drawCardRaw();
+    this.players[playerIndex].hand.push(card);
+    if (this.players[playerIndex].hand.length > 1) {
+      this.players[playerIndex].calledUno = false;
+      this.players[playerIndex].unoVulnerable = false;
+      this.players[playerIndex].pendingUnoCall = false;
+    }
+
+    const canPlay = this.canPlayCard(card);
+    this.addLog(`${this.players[playerIndex].name} 抽了一張牌。`);
+
+    if (!canPlay) {
+      this.hasDrawnThisTurn = false;
+      this.lastAction = {
+        type: 'draw_step',
+        playerId: playerIndex,
+        playerName: this.players[playerIndex].name,
+        card: { ...card },
+        canPlay: false,
+        timestamp: Date.now()
+      };
+      return {
+        success: true,
+        card,
+        drawnCards: [card],
+        wasPenalty: false,
+        canPlay: false,
+        autoPassed: true
+      };
+    }
+
+    this.hasDrawnThisTurn = true;
+    this.turnStartTime = Date.now();
+    this.lastAction = {
+      type: 'draw_step',
+      playerId: playerIndex,
+      playerName: this.players[playerIndex].name,
+      card: { ...card },
+      canPlay: true,
+      timestamp: Date.now()
+    };
+    return {
+      success: true,
+      card,
+      drawnCards: [card],
+      wasPenalty: false,
+      canPlay: true,
+      autoPassed: false
+    };
+  }
+
+  // Explicitly advance turn to next player after animations conclude
+  advanceTurn(step = 1) {
+    this.hasDrawnThisTurn = false;
+    this.currentTurn = this.getNextTurnIndex(step);
+    this.turnStartTime = Date.now();
+    return this.currentTurn;
+  }
+
+  // Finalize auto-passing turn after draw animation has fully played and paused
+  finishAutoPass(playerIndex, card) {
+    const player = this.players[playerIndex];
+    if (!player) return;
+    this.hasDrawnThisTurn = false;
+    this.addLog(`💨 ${player.name} 抽牌後仍無法出牌，跳過回合！`);
+    this.advanceTurn(1);
+    this.lastAction = {
+      type: 'draw_autopass',
+      playerId: playerIndex,
+      playerName: player.name,
+      card: card ? { ...card } : null,
+      timestamp: Date.now()
+    };
+  }
+
+  // Finalize penalty draw sequence
+  finishPenaltyDraw(playerIndex, count) {
+    const player = this.players[playerIndex];
+    if (!player) return;
+    this.stackedDrawCount = 0;
+    this.stackedDrawType = null;
+    this.hasDrawnThisTurn = false;
+    this.addLog(`💥 ${player.name} 無法疊牌，被迫承受累積罰抽【+${count} 張】！回合結束！`);
+    this.advanceTurn(1);
+    this.lastAction = {
+      type: 'penalty_finish',
+      playerId: playerIndex,
+      playerName: player.name,
+      count,
+      timestamp: Date.now()
+    };
+  }
+
+  // Draw exactly one card step during continuous drawing sequence
+  drawSingleCardStep(playerIndex) {
+    if (this.isDealing) {
+      return { success: false, reason: '開局發牌中，尚未能抽牌！' };
+    }
+    if (this.currentTurn !== playerIndex) {
+      return { success: false, reason: '不是你的回合！' };
+    }
+    const player = this.players[playerIndex];
+    if (!player) return { success: false, reason: '玩家不存在' };
+
+    const card = this.drawCardRaw();
+    player.hand.push(card);
+    if (player.hand.length > 1) {
+      player.calledUno = false;
+      player.unoVulnerable = false;
+      player.pendingUnoCall = false;
+    }
+
+    const canPlay = this.canPlayCard(card);
+    this.lastAction = {
+      type: 'draw_step',
+      playerId: playerIndex,
+      playerName: player.name,
+      card: { ...card },
+      timestamp: Date.now()
+    };
+
+    return {
+      success: true,
+      card,
+      canPlay,
+      handCount: player.hand.length
+    };
+  }
+
+  // Finalize continuous drawing sequence once a playable card is found or limit reached
+  finishContinuousDraw(playerIndex, drawnCards, canPlay) {
+    const player = this.players[playerIndex];
+    if (!player) return { success: false };
+
+    const lastCard = drawnCards[drawnCards.length - 1];
+
+    if (drawnCards.length > 1) {
+      this.addLog(`${player.name} 連續抽取了 ${drawnCards.length} 張牌，直到抽到可出的牌！`);
+    } else {
+      this.addLog(`${player.name} 抽了一張牌。`);
+    }
+
+    if (!canPlay) {
+      this.hasDrawnThisTurn = false;
+      this.addLog(`💨 ${player.name} 連續抽牌已達上限仍無法出牌，自動跳過回合！`);
+      this.currentTurn = this.getNextTurnIndex(1);
+      this.lastAction = {
+        type: 'draw_autopass',
+        playerId: playerIndex,
+        playerName: player.name,
+        card: { ...lastCard },
+        drawnCount: drawnCards.length,
+        timestamp: Date.now()
+      };
+      return {
+        success: true,
+        canPlay: false,
+        autoPassed: true,
+        nextPlayer: this.players[this.currentTurn]
+      };
+    }
+
+    this.hasDrawnThisTurn = true;
+    this.lastAction = {
+      type: 'draw_finished',
+      playerId: playerIndex,
+      playerName: player.name,
+      card: { ...lastCard },
+      drawnCount: drawnCards.length,
+      canPlay: true,
+      timestamp: Date.now()
+    };
+
+    return {
+      success: true,
+      card: lastCard,
+      drawnCards,
+      canPlay: true,
+      autoPassed: false
+    };
+  }
+
+  passTurn(playerIndex) {
+    if (this.isDealing) {
+      return { success: false, reason: '開局發牌中！' };
+    }
+    if (this.isChoosingColor) {
+      return { success: false, reason: '正在等待選擇顏色中！' };
+    }
+    if (this.currentTurn !== playerIndex) {
+      return { success: false, reason: '不是你的回合！' };
+    }
+    if (this.stackedDrawCount > 0) {
+      return { success: false, reason: '有累積罰抽未承受，無法直接過牌！' };
+    }
+    if (!this.hasDrawnThisTurn) {
+      return { success: false, reason: '必須先抽一張牌後才能過牌！' };
+    }
+    this.hasDrawnThisTurn = false;
+    this.addLog(`${this.players[playerIndex].name} 選擇過牌。`);
+    this.currentTurn = this.getNextTurnIndex(1);
+    this.turnStartTime = Date.now();
+    return {
+      success: true,
+      nextPlayer: this.players[this.currentTurn]
+    };
+  }
+
+  callUno(playerIndex) {
+    const player = this.players[playerIndex];
+    if (!player) return { success: false };
+    if (player.hand.length <= 2) {
+      if (player.hand.length === 2) {
+        const validCards = this.getValidCardsForPlayer(playerIndex);
+        if (validCards.length === 0) {
+          return { success: false, reason: '手牌剩 2 張但無牌可出，無法喊 UNO！' };
+        }
+      }
+      player.calledUno = true;
+      player.unoVulnerable = false;
+      player.pendingUnoCall = false;
+      this.addLog(`🚨 ${player.name} 大喊了「UNO！」 (剩最後 1 張牌)`);
+      return { success: true };
+    }
+    return { success: false, reason: '手牌超過 2 張時不能喊 UNO！' };
+  }
+
+  challengeUno(challengerIndex, targetIndex) {
+    const target = this.players[targetIndex];
+    if (target && target.hand.length === 1 && target.unoVulnerable && !target.pendingUnoCall) {
+      this.drawCardsForPlayer(targetIndex, 2);
+      target.unoVulnerable = false;
+      this.addLog(`⚖️ ${this.players[challengerIndex].name} 抓到了 ${target.name} 沒喊 UNO！${target.name} 被罰抽 2 張牌！`);
+      return { success: true, caught: true, targetName: target.name };
+    }
+    return { success: false, reason: '對方已喊 UNO 或還在寬限期內！' };
+  }
+
+  calculateScores() {
+    let totalPoints = 0;
+    if (this.gameMode === '2v2' && this.winner) {
+      // In 2v2: Opposing team hand cards are scored
+      const winningTeamId = this.winner.teamId;
+      this.players.forEach(p => {
+        if (p.teamId !== winningTeamId) {
+          p.hand.forEach(c => {
+            totalPoints += c.points;
+          });
+        }
+      });
+      // Both teammates get the victory points
+      this.players.forEach(p => {
+        if (p.teamId === winningTeamId) {
+          p.score += totalPoints;
+        }
+      });
+      this.lastRoundPoints = totalPoints;
+
+      // Check Target Score
+      if (this.targetScore > 0) {
+        const winningPlayer = this.players.find(p => p.teamId === winningTeamId);
+        if (winningPlayer && winningPlayer.score >= this.targetScore) {
+          this.isMatchOver = true;
+          this.matchWinner = {
+            teamId: winningTeamId,
+            teamName: winningPlayer.teamName,
+            score: winningPlayer.score
+          };
+          this.addLog(`🏆 賽事總冠軍誕生！【${winningPlayer.teamName}】累積達到 ${winningPlayer.score} 分，奪得最終冠軍！`);
+        }
+      }
+    } else {
+      this.players.forEach(p => {
+        if (p !== this.winner) {
+          p.hand.forEach(c => {
+            totalPoints += c.points;
+          });
+        }
+      });
+      if (this.winner) {
+        this.winner.score += totalPoints;
+        this.lastRoundPoints = totalPoints;
+
+        // Check Target Score
+        if (this.targetScore > 0 && this.winner.score >= this.targetScore) {
+          this.isMatchOver = true;
+          this.matchWinner = {
+            id: this.winner.id,
+            name: this.winner.name,
+            score: this.winner.score
+          };
+          this.addLog(`🏆 賽事總冠軍誕生！【${this.winner.name}】累積達到 ${this.winner.score} 分，奪得最終冠軍！`);
+        }
+      }
+    }
+  }
+
+  getCardDisplayName(card) {
+    const colName = this.colorNames[card.color] || '';
+    if (card.value === 'skip') return `${colName} 禁止牌`;
+    if (card.value === 'reverse') return `${colName} 反轉牌`;
+    if (card.value === 'draw2') return `${colName} +2 罰抽牌`;
+    if (card.value === 'wild') return `萬用牌 (Wild)`;
+    if (card.value === 'wild_draw4') return `萬用 +4 罰抽牌 (Wild Draw 4)`;
+    return `${colName} ${card.value}`;
+  }
+
+  addLog(msg) {
+    this.log.unshift({
+      time: new Date().toLocaleTimeString(),
+      text: msg
+    });
+    if (this.log.length > 50) this.log.pop();
+  }
+
+  // Produce a security-masked state for a specific client (Prevents DevTools Cheating!)
+  // In 2v2 mode: teammate's hand is sent, while opponents' hands remain hidden!
+  getClientState(playerIndex) {
+    const top = this.getTopCard();
+    let topDisplayKey = top ? (top.displayAssetKey || top.assetKey) : 'card_back';
+    if (top && top.color === 'wild') {
+      if (this.isChoosingColor || !top.chosenColor) {
+        topDisplayKey = top.value === 'wild_draw4' ? 'wild_draw4' : 'wild';
+      } else {
+        topDisplayKey = top.value === 'wild_draw4' ? `wild_draw4_${top.chosenColor}` : `wild_${top.chosenColor}`;
+      }
+    }
+
+    const teammateIndex = this.gameMode === '2v2' ? (playerIndex + 2) % 4 : null;
+    const teammatePlayer = teammateIndex !== null ? this.players[teammateIndex] : null;
+
+    const sanitizeHandCard = (c) => {
+      if (c && c.color === 'wild') {
+        const { chosenColor, ...rest } = c;
+        return { ...rest, displayAssetKey: c.assetKey };
+      }
+      return c;
+    };
+
+    return {
+      gameMode: this.gameMode,
+      targetScore: this.targetScore,
+      drawRule: this.drawRule,
+      isMatchOver: !!this.isMatchOver,
+      matchWinner: this.matchWinner || null,
+      lastRoundPoints: this.lastRoundPoints || 0,
+      isContinuousDrawing: !!this.isContinuousDrawing,
+      drawingPlayerIndex: this.drawingPlayerIndex !== undefined ? this.drawingPlayerIndex : null,
+      drawingStepCount: this.drawingStepCount || 0,
+      myIndex: playerIndex,
+      teammateIndex,
+      teammateHand: teammatePlayer ? teammatePlayer.hand.map(sanitizeHandCard) : [],
+      players: this.players.map(p => ({
+        id: p.id,
+        name: p.name,
+        isAi: p.isAi,
+        teamId: p.teamId,
+        teamName: p.teamName,
+        cardCount: p.hand.length,
+        calledUno: p.calledUno,
+        unoVulnerable: p.unoVulnerable,
+        score: p.score
+      })),
+      myHand: this.players[playerIndex] ? this.players[playerIndex].hand.map(sanitizeHandCard) : [],
+      validCards: this.getValidCardsForPlayer(playerIndex).map(c => c.id),
+      topCard: top ? {
+        ...top,
+        displayAssetKey: topDisplayKey
+      } : null,
+      currentColor: this.currentColor,
+      currentValue: this.currentValue,
+      direction: this.direction,
+      currentTurn: this.currentTurn,
+      turnStartTime: this.turnStartTime,
+      turnDuration: this.turnDuration || 15,
+      isChoosingColor: !!this.isChoosingColor,
+      colorChoosingPlayerIndex: this.colorChoosingPlayerIndex !== undefined ? this.colorChoosingPlayerIndex : null,
+      pendingWildCard: this.pendingWildCard ? { ...this.pendingWildCard } : null,
+      hasDrawnThisTurn: this.hasDrawnThisTurn,
+      stackedDrawCount: this.stackedDrawCount,
+      stackedDrawType: this.stackedDrawType,
+      allowStacking: this.allowStacking,
+      gameStatus: this.gameStatus,
+      isDealing: !!this.isDealing,
+      winner: this.winner ? {
+        id: this.winner.id,
+        name: this.winner.name,
+        teamId: this.winner.teamId,
+        teamName: this.winner.teamName
+      } : null,
+      drawPileCount: this.drawPile.length,
+      lastAction: this.lastAction || null,
+      log: this.log.slice(0, 30)
+    };
+  }
+}
