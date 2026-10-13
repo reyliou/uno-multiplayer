@@ -350,14 +350,15 @@ export class UnoEngine {
     }
 
     // Save Wild Draw 4 challenge verification info BEFORE card is removed from hand!
+    // Steam / Official UNO rule: strictly check if player held cards matching current active COLOR!
     if (card.value === 'wild_draw4') {
       const prevColor = this.currentColor;
-      const prevValue = this.currentValue;
-      // Illegal if player had cards matching current color or value (excluding wild cards)
-      const matchingCards = player.hand.filter(c => c.id !== card.id && (c.color === prevColor || (c.color !== 'wild' && c.value === prevValue)));
+      // Illegal ONLY if player had cards matching current color (excluding wild cards)
+      const matchingCards = player.hand.filter(c => c.id !== card.id && c.color === prevColor);
       this.pendingWildDraw4Info = {
         playerIndex,
         playerName: player.name,
+        targetColorName: this.colorNames[prevColor] || prevColor,
         hasMatchingCard: matchingCards.length > 0,
         matchingCardNames: matchingCards.map(c => this.getCardDisplayName(c)),
         priorStackedCount: this.stackedDrawCount || 0
@@ -922,11 +923,11 @@ export class UnoEngine {
     const challenger = this.players[challengerIndex];
 
     if (info.hasMatchingCard) {
-      // 質疑成功！被質疑者手牌中明明有可出的對應牌，違規出 +4
+      // 質疑成功！被質疑者手牌中明明有當前顏色牌，違規出 +4
       this.drawCardsForPlayer(info.playerIndex, 4);
       const priorCount = info.priorStackedCount || 0;
       
-      let msg = `⚖️ 【${challenger.name}】質疑成功！【${challengedPlayer.name}】手牌中明明有符合的牌 (${info.matchingCardNames.join('、')})，違規出 +4！${challengedPlayer.name} 被罰抽 4 張！`;
+      let msg = `⚖️ 【${challenger.name}】質疑成功！【${challengedPlayer.name}】手牌中明明有【${info.targetColorName}】的牌 (${info.matchingCardNames.join('、')})，違規出 +4！${challengedPlayer.name} 被罰抽 4 張！`;
 
       this.lastWildDraw4Info = null;
       this.stackedDrawCount = 0;
@@ -959,12 +960,12 @@ export class UnoEngine {
         };
       }
     } else {
-      // 質疑失敗！被質疑者確實無符合花色或數字的牌 (合法出牌)
+      // 質疑失敗！被質疑者確實無該顏色手牌 (合法出牌)
       // 質疑者承受所有累積罰抽 + 2 張額外罰抽，並跳過回合
       const totalPenalty = (this.stackedDrawCount || 4) + 2;
       this.drawCardsForPlayer(challengerIndex, totalPenalty);
 
-      const msg = `⚖️ 【${challenger.name}】質疑失敗！【${challengedPlayer.name}】當時確實無符合花色或數字的牌！${challenger.name} 承受所有罰抽加罰 2 張 (共抽 ${totalPenalty} 張) 並跳過回合！`;
+      const msg = `⚖️ 【${challenger.name}】質疑失敗！【${challengedPlayer.name}】當時確實無【${info.targetColorName}】的手牌！${challenger.name} 承受所有罰抽加罰 2 張 (共抽 ${totalPenalty} 張) 並跳過回合！`;
       this.addLog(msg);
 
       this.lastWildDraw4Info = null;

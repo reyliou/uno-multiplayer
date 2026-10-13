@@ -303,7 +303,7 @@ export function LobbyView({
 
             {/* Challenge Wild Draw 4 Rule */}
             <div className="flex items-center justify-between p-2 rounded-xl bg-emerald-950/40 border border-emerald-500/20">
-              <span className="text-emerald-300/80 flex items-center gap-1" title="出+4時若手中已有該色或該數字，可被下家質疑">
+              <span className="text-emerald-300/80 flex items-center gap-1" title="出+4時若手中已有該顏色手牌，可被下家質疑 (Steam官方規則)">
                 <Scale className="w-3.5 h-3.5 text-amber-300" />
                 質疑 +4 規則：
               </span>
