@@ -138,7 +138,6 @@ export function GameTableView({
   const [isHandCollapsed, setIsHandCollapsed] = useState(false);
   const [isSorted, setIsSorted] = useState(true);
   const [skippedPlayerInfo, setSkippedPlayerInfo] = useState(null);
-  const hasDealtRef = useRef(false);
   const prevActionTimeRef = useRef(0);
 
   // Refs for flight animations
@@ -151,7 +150,6 @@ export function GameTableView({
 
   // Tracking refs to detect remote / bot actions for flight animations
   const prevTopCardRef = useRef(null);
-  const prevHandCountsRef = useRef({});
 
   const showToast = (msg) => {
     setToastMessage(msg);
@@ -734,13 +732,15 @@ export function GameTableView({
       {/* ============================================================== */}
       {/* GAME ARENA TABLE (1:1 from 螢幕擷取畫面 2026-10-13 150340.png) */}
       {/* ============================================================== */}
-      <main className="relative flex-1 flex items-center justify-center p-2 sm:p-5">
-        <div className="table-surface">
+      <main className="relative flex-1 flex flex-col justify-between p-2 sm:p-4 overflow-hidden">
+        {/* 3D Perspective Table Viewport (Classic Green Felt Table with Depth) */}
+        <div className="table-viewport w-full flex-1 flex items-center justify-center">
+          <div className="table-surface-3d">
 
-          {/* ---------------------------------------------------------- */}
-          {/* TOP ROW: OPPONENT 2 (Or Teammate in 2V2)                   */}
-          {/* ---------------------------------------------------------- */}
-          <div className="w-full flex flex-col items-center justify-center min-h-[90px] z-10">
+            {/* ---------------------------------------------------------- */}
+            {/* TOP ROW: OPPONENT 2 (Or Teammate in 2V2)                   */}
+            {/* ---------------------------------------------------------- */}
+            <div className="w-full flex flex-col items-center justify-center min-h-[90px] z-10 standing-3d-top">
             {topPlayer && (
               <div
                 ref={topPlayerRef}
@@ -838,10 +838,10 @@ export function GameTableView({
           {/* ---------------------------------------------------------- */}
           {/* MIDDLE ROW: OPPONENT 1 | CENTER ARENA | OPPONENT 3        */}
           {/* ---------------------------------------------------------- */}
-          <div className="flex-1 flex items-center justify-between gap-4 px-2 sm:px-6 z-10">
+          <div className="flex-1 flex items-center justify-between gap-4 px-2 sm:px-6 z-10" style={{ transformStyle: 'preserve-3d' }}>
 
             {/* LEFT OPPONENT (Player 1) */}
-            <div className="w-32 flex flex-col items-center">
+            <div className="w-32 flex flex-col items-center standing-3d-left">
               {leftPlayer && (
                 <div
                   ref={leftPlayerRef}
@@ -912,7 +912,7 @@ export function GameTableView({
             </div>
 
             {/* CENTER ARENA (Draw Pile, Discard Pile, Status Bar) */}
-            <div className="relative flex flex-col items-center justify-center gap-4">
+            <div className="relative flex flex-col items-center justify-center gap-4" style={{ transformStyle: 'preserve-3d' }}>
               {/* Skip Floating Banner */}
               {skippedPlayerInfo && (
                 <div className="absolute -top-12 left-1/2 -translate-x-1/2 z-40 px-4 py-1.5 rounded-full bg-red-600 border-2 border-yellow-300 text-white font-black text-xs sm:text-sm shadow-2xl animate-bounce flex items-center gap-1.5 whitespace-nowrap">
@@ -968,6 +968,7 @@ export function GameTableView({
                   <div
                     ref={discardPileRef}
                     className="relative transition-transform duration-300 w-20 h-30 sm:w-24 sm:h-36 flex items-center justify-center"
+                    style={{ transformStyle: 'preserve-3d', transform: 'translateZ(2px)' }}
                   >
                     {/* Layered Under-cards */}
                     {recentDiscardPile && recentDiscardPile.length > 1 && recentDiscardPile.slice(0, -1).map((discardedCard, idx) => (
@@ -1036,7 +1037,7 @@ export function GameTableView({
             </div>
 
             {/* RIGHT OPPONENT (Player 3) */}
-            <div className="w-32 flex flex-col items-center">
+            <div className="w-32 flex flex-col items-center standing-3d-right">
               {rightPlayer && (
                 <div
                   ref={rightPlayerRef}
@@ -1107,11 +1108,13 @@ export function GameTableView({
             </div>
 
           </div>
+        </div>
+      </div>
 
-          {/* ---------------------------------------------------------- */}
-          {/* BOTTOM ROW: HUMAN PLAYER CONTROLS & FANNED HAND            */}
-          {/* ---------------------------------------------------------- */}
-          <div className="w-full flex flex-col items-center z-20 pb-2">
+      {/* ---------------------------------------------------------- */}
+      {/* BOTTOM ROW: HUMAN PLAYER CONTROLS & FANNED HAND (2D Foreground) */}
+      {/* ---------------------------------------------------------- */}
+      <div className="w-full flex flex-col items-center z-30 pb-2 pointer-events-auto">
 
             {/* Controls Bar */}
             <div className="w-full max-w-4xl flex items-center justify-between px-4 mb-2">
@@ -1368,8 +1371,6 @@ export function GameTableView({
               </div>
             </div>
           )}
-
-        </div>
       </main>
 
       {/* Game Log Drawer */}

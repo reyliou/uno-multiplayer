@@ -101,11 +101,6 @@ export default function App() {
     p2pNetwork.startGame();
   };
 
-  // Host restarts game
-  const handleRestartGame = () => {
-    p2pNetwork.restartGame();
-  };
-
   // Toggle slot AI (Host only)
   const handleToggleAi = (slotIndex) => {
     p2pNetwork.toggleSlotAi(slotIndex);

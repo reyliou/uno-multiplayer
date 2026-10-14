@@ -1125,7 +1125,7 @@ export class UnoEngine {
       recentDiscardPile: this.discardPile.slice(-6).map((c, i, arr) => {
         let displayAssetKey = c.assetKey;
         if (c.color === 'wild' && c.chosenColor) {
-          displayAssetKey = `${c.chosenColor}_${c.value}`;
+          displayAssetKey = c.value === 'wild_draw4' ? `wild_draw4_${c.chosenColor}` : `wild_${c.chosenColor}`;
         }
         const hash = c.id ? c.id.split('').reduce((acc, ch) => acc + ch.charCodeAt(0), 0) : i * 17;
         const rot = ((hash % 19) - 9); // subtle rotation: -9 to +9 deg
