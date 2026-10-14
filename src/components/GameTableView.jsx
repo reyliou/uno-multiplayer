@@ -131,7 +131,7 @@ export function GameTableView({
   const [copiedCode, setCopiedCode] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
 
-  // Hand Fan & Sort Animation States
+  // Hand Collapse & Sort Animation States
   const [isHandCollapsed, setIsHandCollapsed] = useState(false);
   const [isSorted, setIsSorted] = useState(true);
   const [skippedPlayerInfo, setSkippedPlayerInfo] = useState(null);
@@ -215,40 +215,35 @@ export function GameTableView({
   const myPlayer = players[myIndex] || { name: '你 (玩家)', cardCount: displayedHand.length };
 
   // Render standing opponent cards:
-  // - 'top': Horizontal standing row with table reflection
-  // - 'left': Angled cascade parallel to the left perspective table edge (like Ubisoft UNO)
-  // - 'right': Angled cascade parallel to the right perspective table edge
+  // Every single card stays 100% upright & level with the table's horizontal lines (rotate = 0deg),
+  // while the row steps cleanly along the left/right perspective table edge!
   const renderOpponentCards = (count, side = 'top') => {
     const cardCount = typeof count === 'number' ? count : 1;
     const visualCount = Math.min(Math.max(cardCount, 1), 7);
 
     if (side === 'left') {
-      // Follows the left trapezoid edge (bottom-left to top-right slope)
+      // Steps cleanly along the left perspective edge (top-right to bottom-left, each card strictly horizontal-level)
       return (
         <div
-          className="relative flex items-center justify-center card-reflection"
-          style={{
-            width: '130px',
-            height: '120px',
-            transform: 'perspective(600px) rotateY(22deg) rotateZ(-14deg)'
-          }}
+          className="relative flex items-center justify-center"
+          style={{ width: '136px', height: '148px' }}
         >
           {Array.from({ length: visualCount }).map((_, idx) => {
+            // idx 0 is top-most (further back), idx (visualCount-1) is bottom-most (closer to viewer)
             const offset = idx - (visualCount - 1) / 2;
-            const tx = offset * 14;
-            const ty = -offset * 9;
-            const rot = offset * 2.5;
+            const tx = -offset * 10.5; // shifts left as it goes down, matching left table border slope
+            const ty = offset * 14.5;  // steps down vertically
             return (
               <div
                 key={idx}
                 style={{
                   position: 'absolute',
-                  transform: `translate(${tx}px, ${ty}px) rotate(${rot}deg)`,
-                  zIndex: idx
+                  transform: `translate(${tx}px, ${ty}px)`,
+                  zIndex: idx + 1
                 }}
-                className="transition-all duration-200 drop-shadow-[0_10px_14px_rgba(0,0,0,0.75)]"
+                className="transition-all duration-200 drop-shadow-[0_8px_12px_rgba(0,0,0,0.75)] card-reflection"
               >
-                <CardView isBack isSmall className="!w-13 !h-19 sm:!w-15 sm:!h-22" />
+                <CardView isBack isSmall className="!w-13 !h-19 sm:!w-14 sm:!h-20" />
               </div>
             );
           })}
@@ -257,32 +252,28 @@ export function GameTableView({
     }
 
     if (side === 'right') {
-      // Follows the right trapezoid edge (top-left to bottom-right slope)
+      // Steps cleanly along the right perspective edge (top-left to bottom-right, each card strictly horizontal-level)
       return (
         <div
-          className="relative flex items-center justify-center card-reflection"
-          style={{
-            width: '130px',
-            height: '120px',
-            transform: 'perspective(600px) rotateY(-22deg) rotateZ(14deg)'
-          }}
+          className="relative flex items-center justify-center"
+          style={{ width: '136px', height: '148px' }}
         >
           {Array.from({ length: visualCount }).map((_, idx) => {
+            // idx 0 is top-most (further back), idx (visualCount-1) is bottom-most (closer to viewer)
             const offset = idx - (visualCount - 1) / 2;
-            const tx = offset * 14;
-            const ty = offset * 9;
-            const rot = offset * 2.5;
+            const tx = offset * 10.5; // shifts right as it goes down, matching right table border slope
+            const ty = offset * 14.5; // steps down vertically
             return (
               <div
                 key={idx}
                 style={{
                   position: 'absolute',
-                  transform: `translate(${tx}px, ${ty}px) rotate(${rot}deg)`,
-                  zIndex: idx
+                  transform: `translate(${tx}px, ${ty}px)`,
+                  zIndex: idx + 1
                 }}
-                className="transition-all duration-200 drop-shadow-[0_10px_14px_rgba(0,0,0,0.75)]"
+                className="transition-all duration-200 drop-shadow-[0_8px_12px_rgba(0,0,0,0.75)] card-reflection"
               >
-                <CardView isBack isSmall className="!w-13 !h-19 sm:!w-15 sm:!h-22" />
+                <CardView isBack isSmall className="!w-13 !h-19 sm:!w-14 sm:!h-20" />
               </div>
             );
           })}
@@ -290,24 +281,17 @@ export function GameTableView({
       );
     }
 
-    // Top opponent horizontal row
+    // Top opponent: strictly level horizontal row
     return (
-      <div className="flex items-center justify-center -space-x-4 sm:-space-x-5 card-reflection">
-        {Array.from({ length: visualCount }).map((_, idx) => {
-          const rot = (idx - (visualCount - 1) / 2) * 2.5;
-          const archY = Math.abs(idx - (visualCount - 1) / 2) * 1.2;
-          return (
-            <div
-              key={idx}
-              className="transition-transform duration-150 drop-shadow-[0_8px_12px_rgba(0,0,0,0.65)]"
-              style={{
-                transform: `rotate(${rot}deg) translateY(${archY}px)`
-              }}
-            >
-              <CardView isBack isSmall className="!w-13 !h-19 sm:!w-15 sm:!h-22" />
-            </div>
-          );
-        })}
+      <div className="flex items-center justify-center -space-x-3.5 sm:-space-x-4 card-reflection">
+        {Array.from({ length: visualCount }).map((_, idx) => (
+          <div
+            key={idx}
+            className="transition-transform duration-150 drop-shadow-[0_8px_12px_rgba(0,0,0,0.65)]"
+          >
+            <CardView isBack isSmall className="!w-13 !h-19 sm:!w-15 sm:!h-22" />
+          </div>
+        ))}
       </div>
     );
   };
@@ -323,11 +307,11 @@ export function GameTableView({
   const autoPenaltyTimerRef = useRef(null);
 
   useEffect(() => {
-    if (isMyTurn && !isDealing && stackedDrawCount > 0 && validCards.length === 0 && !canChallengeWildDraw4) {
+    if (isMyTurn && !isDealing && !isContinuousDrawing && stackedDrawCount > 0 && validCards.length === 0 && !canChallengeWildDraw4) {
       showToast(`💥 無對應牌可疊！自動承受累積罰抽【+${stackedDrawCount} 張】...`);
       autoPenaltyTimerRef.current = setTimeout(() => {
         handleDrawWithAnimation();
-      }, 750);
+      }, 650);
       return () => {
         if (autoPenaltyTimerRef.current) {
           clearTimeout(autoPenaltyTimerRef.current);
@@ -335,7 +319,7 @@ export function GameTableView({
         }
       };
     }
-  }, [isMyTurn, isDealing, stackedDrawCount, validCards.length, canChallengeWildDraw4]);
+  }, [isMyTurn, isDealing, isContinuousDrawing, stackedDrawCount, validCards.length, canChallengeWildDraw4]);
 
   // Calculate Seats (Top, Left, Right)
   const totalP = players.length;
@@ -492,6 +476,7 @@ export function GameTableView({
     }
 
     // For local player's hand:
+    // Use 160ms spacing only when multiple cards arrive in a single batch (for single step draws idx === 0 so delay is 0ms!)
     if (myHand.length < displayedHand.length) {
       setDisplayedHand(myHand);
     } else if (myHand.length > displayedHand.length) {
@@ -514,7 +499,7 @@ export function GameTableView({
               return [...prev, c];
             });
           }
-        }, idx * 280);
+        }, idx * 160);
       });
     }
 
@@ -544,7 +529,7 @@ export function GameTableView({
             } else {
               setDisplayedCounts(prev => ({ ...prev, [p.id]: p.cardCount }));
             }
-          }, k * 280);
+          }, k * 160);
         }
       }
     });
@@ -832,7 +817,7 @@ export function GameTableView({
               )}
             </div>
 
-            {/* Crisp High-Res Teammate Face-Up Cards OR Opponent Fanned Backs */}
+            {/* Crisp High-Res Teammate Face-Up Cards OR Opponent Level Row */}
             <div className="flex items-center justify-center mt-0.5">
               {isTeammateTop ? (
                 <div className="flex items-center -space-x-3 sm:-space-x-4 card-reflection">
@@ -868,11 +853,11 @@ export function GameTableView({
           </div>
         )}
 
-        {/* 3. LEFT SEAT (Sits inside left table rim, cards angled along left perspective edge) */}
+        {/* 3. LEFT SEAT (Aligned with left perspective border, cards strictly level with horizontal table lines) */}
         {leftPlayer && (
           <div
             ref={leftPlayerRef}
-            className="absolute left-[6%] sm:left-[11%] md:left-[13%] top-[44%] -translate-y-1/2 z-20 flex flex-col items-center gap-2 pointer-events-auto"
+            className="absolute left-[5%] sm:left-[9%] md:left-[11.5%] top-[43%] -translate-y-1/2 z-20 flex flex-col items-center gap-1.5 pointer-events-auto"
           >
             <div className="flex items-center gap-2">
               <div
@@ -926,11 +911,11 @@ export function GameTableView({
           </div>
         )}
 
-        {/* 4. RIGHT SEAT (Sits inside right table rim, cards angled along right perspective edge) */}
+        {/* 4. RIGHT SEAT (Aligned with right perspective border, cards strictly level with horizontal table lines) */}
         {rightPlayer && (
           <div
             ref={rightPlayerRef}
-            className="absolute right-[6%] sm:right-[11%] md:right-[13%] top-[44%] -translate-y-1/2 z-20 flex flex-col items-center gap-2 pointer-events-auto"
+            className="absolute right-[5%] sm:right-[9%] md:right-[11.5%] top-[43%] -translate-y-1/2 z-20 flex flex-col items-center gap-1.5 pointer-events-auto"
           >
             <div className="flex items-center gap-2">
               {((currentTurn === rightPlayer.id && !isChoosingColor) || (isChoosingColor && colorChoosingPlayerIndex === rightPlayer.id)) && !isDealing && !isContinuousDrawing && gameState?.gameStatus !== 'game_over' && (
@@ -985,7 +970,7 @@ export function GameTableView({
         )}
 
         {/* 5. CENTER TABLE PILES (Draw Pile & Discard Pile lying on the center of the table) */}
-        <div className="relative z-10 -mt-8 flex flex-col items-center justify-center gap-3 pointer-events-auto">
+        <div className="relative z-10 -mt-12 flex flex-col items-center justify-center gap-3 pointer-events-auto">
           {skippedPlayerInfo && (
             <div className="absolute -top-12 left-1/2 -translate-x-1/2 z-40 px-4 py-1.5 rounded-full bg-red-600 border-2 border-yellow-300 text-white font-black text-xs sm:text-sm shadow-2xl animate-bounce flex items-center gap-1.5 whitespace-nowrap">
               <span>🚫 【{skippedPlayerInfo.sourceName}】出禁止牌！跳過【{skippedPlayerInfo.playerName}】！</span>
@@ -1030,7 +1015,6 @@ export function GameTableView({
                 </div>
               </div>
 
-              {/* Unclipped crisp Pile Count Badge */}
               <div className="bg-black/80 px-3.5 py-0.5 rounded-full text-xs font-bold text-gray-200 border border-white/20 shadow-md">
                 {drawPileCount || 80} 張
               </div>
@@ -1068,7 +1052,6 @@ export function GameTableView({
                 </div>
               </div>
 
-              {/* Unclipped crisp Active Color Badge */}
               <div className="flex items-center gap-1.5 px-3.5 py-0.5 rounded-full bg-[#0a1c12]/95 border border-white/20 shadow-md text-xs font-bold text-white">
                 <span
                   className="w-3 h-3 rounded-full inline-block"
@@ -1108,11 +1091,11 @@ export function GameTableView({
           </div>
         </div>
 
-        {/* 6. BOTTOM SEAT: HUMAN PLAYER CONTROLS & FANNED HAND (Rests on bottom rim of the table) */}
-        <div className="absolute bottom-1 left-0 right-0 z-30 flex flex-col items-center pointer-events-auto">
+        {/* 6. BOTTOM SEAT: HUMAN PLAYER CONTROLS & STRAIGHT LEVEL HAND (Positioned right on the bottom table edge) */}
+        <div className="absolute bottom-4 sm:bottom-6 left-0 right-0 z-30 flex flex-col items-center pointer-events-auto">
 
           {/* Controls Bar */}
-          <div className="w-full max-w-4xl flex items-center justify-between px-6 mb-1">
+          <div className="w-full max-w-4xl flex items-center justify-between px-6 mb-1.5">
             {/* Human Player Badge & Turn Timer Circle (Bottom-Left) */}
             <div className="flex items-center gap-2">
               <div
@@ -1256,38 +1239,34 @@ export function GameTableView({
             </div>
           </div>
 
-          {/* Fanned Hand Cards Resting Over the Front Rim of the Table */}
+          {/* Straight Level Hand Cards Resting Right on the Bottom Table Edge (No Fan Angle) */}
           <div
             ref={myHandRef}
-            className="w-full max-w-4xl px-4 pt-2 pb-1 overflow-visible flex items-center justify-center min-h-[135px]"
+            className="w-full max-w-4xl px-4 pt-1 pb-1 overflow-visible flex items-center justify-center min-h-[125px]"
           >
-            <div className="flex items-center justify-center -space-x-6 sm:-space-x-8 md:-space-x-10 overflow-visible transition-all">
+            <div className="flex items-center justify-center -space-x-5 sm:-space-x-6 md:-space-x-7 overflow-visible transition-all">
               {handToDisplay.map((card, idx) => {
                 const isPlayable = !isDealing && isMyTurn && validCards.includes(card.id);
-                const count = handToDisplay.length;
-                const rotation = isHandCollapsed ? 0 : (idx - (count - 1) / 2) * 3;
-                const baseTranslateY = isHandCollapsed ? 22 : Math.abs(idx - (count - 1) / 2) * 2;
-                const sinkOffset = isMyTurn ? 0 : 28;
-                const translateY = baseTranslateY + sinkOffset;
-                const scale = isMyTurn ? (isHandCollapsed ? 0.94 : 1) : 0.93;
+                const translateY = isHandCollapsed ? 16 : (isMyTurn ? 0 : 8);
+                const scale = isMyTurn ? (isHandCollapsed ? 0.94 : 1) : 0.95;
 
                 return (
                   <div
                     key={card.id}
                     style={{
-                      transform: `rotate(${rotation}deg) translateY(${translateY}px) scale(${scale})`,
+                      transform: `translateY(${translateY}px) scale(${scale})`,
                       transformOrigin: 'bottom center',
                       filter: isDealing
                         ? 'brightness(0.7) saturate(80%)'
-                        : (isMyTurn ? 'brightness(1) saturate(100%)' : 'brightness(0.65) saturate(80%)'),
+                        : (isMyTurn ? 'brightness(1) saturate(100%)' : 'brightness(0.68) saturate(85%)'),
                       transitionProperty: 'transform, filter',
-                      transitionDuration: '380ms',
+                      transitionDuration: '320ms',
                       transitionTimingFunction: 'cubic-bezier(0.34, 1.4, 0.64, 1)',
-                      transitionDelay: isHandCollapsed ? '0ms' : `${idx * 25}ms`,
+                      transitionDelay: isHandCollapsed ? '0ms' : `${idx * 20}ms`,
                       pointerEvents: (isMyTurn && !isDealing) ? 'auto' : 'none'
                     }}
                     className={`overflow-visible transition-transform duration-200 ${
-                      (isMyTurn && !isDealing) ? 'hover:z-40 hover:!rotate-0 hover:!-translate-y-6 cursor-pointer' : 'select-none'
+                      (isMyTurn && !isDealing) ? 'hover:z-40 hover:!-translate-y-5 cursor-pointer' : 'select-none'
                     }`}
                   >
                     <CardView

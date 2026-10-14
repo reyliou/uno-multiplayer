@@ -427,7 +427,7 @@ export class P2PNetwork {
       }
 
       case 'ACTION_CHALLENGE_WILD_DRAW4': {
-        if (!this.gameStarted || !this.engine) return;
+        if (!this.gameStarted || !this.engine || this.isContinuousDrawing) return;
         const guest = this.guestConns.get(conn.peer);
         if (!guest) return;
 
@@ -436,7 +436,14 @@ export class P2PNetwork {
           soundManager.playPenalty();
           this.broadcastSoundEvent('penalty');
           this.broadcastGameState();
-          this.checkAiTurn();
+          // 等待質疑罰抽的飛牌動畫全部落地後才輪到下一家行動
+          const drawnCount = res.penalty || Math.max(4, res.priorCount || 4);
+          const animWait = drawnCount * 200 + 650;
+          this.isContinuousDrawing = true;
+          setTimeout(() => {
+            this.isContinuousDrawing = false;
+            this.checkAiTurn();
+          }, animWait);
         } else {
           conn.send({ type: 'ACTION_FAILED', reason: res.reason });
         }
@@ -873,6 +880,14 @@ export class P2PNetwork {
         soundManager.playPenalty();
         this.broadcastSoundEvent('penalty');
         this.broadcastGameState();
+        const drawnCount = res.penalty || Math.max(4, res.priorCount || 4);
+        const animWait = drawnCount * 200 + 650;
+        this.isContinuousDrawing = true;
+        setTimeout(() => {
+          this.isContinuousDrawing = false;
+          this.checkAiTurn();
+        }, animWait);
+        return;
       }
       this.checkAiTurn();
       return;
@@ -1028,6 +1043,12 @@ export class P2PNetwork {
     const countToDraw = this.engine.stackedDrawCount;
     if (countToDraw <= 0) return;
 
+    // 抽牌期間立即暫停回合超時計時器，避免罰抽張數過多時被判定超時
+    if (this.turnTimeoutTimer) {
+      clearTimeout(this.turnTimeoutTimer);
+      this.turnTimeoutTimer = null;
+    }
+
     this.isContinuousDrawing = true;
     this.engine.isContinuousDrawing = true;
     this.engine.drawingPlayerIndex = playerIndex;
@@ -1057,8 +1078,8 @@ export class P2PNetwork {
       this.broadcastGameState();
 
       if (drawn >= countToDraw) {
-        // Wait 700ms so the last card lands cleanly and spectators see the full penalty
-        setTimeout(() => {
+        // 最後一張罰抽牌發出後，等待 950ms（飛行 300ms + 落地停頓 650ms）才結束回合並切換下一位玩家！
+        this.continuousDrawTimer = setTimeout(() => {
           if (!this.engine) return;
           this.engine.finishPenaltyDraw(playerIndex, countToDraw);
           this.finishDrawingCleanup();
@@ -1067,12 +1088,12 @@ export class P2PNetwork {
           this.broadcastGameState();
           this.checkAiTurn();
           if (onComplete) onComplete({ success: true, count: countToDraw });
-        }, 700);
+        }, 950);
       } else {
-        // Next penalty card with 300ms spacing
+        // 每張罰抽間隔 340ms（大於單張飛行 300ms），確保前一張落地才飛下一張
         this.continuousDrawTimer = setTimeout(() => {
           step();
-        }, 300);
+        }, 340);
       }
     };
 
@@ -1237,14 +1258,20 @@ export class P2PNetwork {
   }
 
   hostChallengeWildDraw4() {
-    if (!this.isHost || !this.engine) return { success: false };
+    if (!this.isHost || !this.engine || this.isContinuousDrawing) return { success: false };
     const hostIdx = this.getHostIndex();
     const res = this.engine.challengeWildDraw4(hostIdx);
     if (res.success) {
       soundManager.playPenalty();
       this.broadcastSoundEvent('penalty');
       this.broadcastGameState();
-      this.checkAiTurn();
+      const drawnCount = res.penalty || Math.max(4, res.priorCount || 4);
+      const animWait = drawnCount * 200 + 650;
+      this.isContinuousDrawing = true;
+      setTimeout(() => {
+        this.isContinuousDrawing = false;
+        this.checkAiTurn();
+      }, animWait);
     }
     return res;
   }

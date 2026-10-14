@@ -47,11 +47,11 @@
 /* Tilted 3D Green Felt Table Surface (Spans from top player to bottom player) */
 .table-surface-3d {
   position: absolute;
-  width: min(1280px, 94vw);
-  height: min(820px, 88dvh);
-  top: 46%;
+  width: min(1300px, 95vw);
+  height: min(850px, 90dvh);
+  top: 48%;
   left: 50%;
-  border-radius: 76px;
+  border-radius: 72px;
   background: radial-gradient(
     ellipse at 50% 48%,
     rgba(34, 112, 60, 0.98) 0%,
@@ -75,7 +75,7 @@
   content: "";
   position: absolute;
   inset: 22px;
-  border-radius: 56px;
+  border-radius: 54px;
   border: 1.5px solid rgba(244, 196, 48, 0.16);
   pointer-events: none;
 }
