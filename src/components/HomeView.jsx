@@ -1,7 +1,18 @@
-// HomeView.jsx - Lobby Entry & Room Creator / Joiner with 2v2 Mode Selection
+// HomeView.jsx - Commercial Casino Tabletop Entry & Room Creator / Joiner
 import React, { useState, useEffect } from 'react';
-import { PlusCircle, LogIn, Users, Flame, ShieldCheck, Sparkles, Swords, UserCheck } from 'lucide-react';
+import {
+  PlusCircle,
+  LogIn,
+  Users,
+  Flame,
+  ShieldCheck,
+  Swords,
+  UserCheck,
+  Sparkles,
+  ChevronRight
+} from 'lucide-react';
 import { P2PNetwork } from '../services/p2p';
+import { soundManager } from '../services/sound';
 
 export function HomeView({ onCreateRoom, onJoinRoom }) {
   const [playerName, setPlayerName] = useState(() => localStorage.getItem('uno_player_name') || '玩家');
@@ -24,197 +35,296 @@ export function HomeView({ onCreateRoom, onJoinRoom }) {
     localStorage.setItem('uno_player_name', val);
   };
 
+  const handleTabSwitch = (newTab) => {
+    soundManager.playTick();
+    setTab(newTab);
+  };
+
+  const handleModeSelect = (mode) => {
+    soundManager.playTick();
+    setGameMode(mode);
+  };
+
   const handleCreate = (e) => {
     e.preventDefault();
+    soundManager.playShuffle();
     const code = P2PNetwork.generateRoomCode();
-    onCreateRoom(code, playerName, allowStacking, gameMode);
+    onCreateRoom(code, playerName.trim() || '房主', allowStacking, gameMode);
   };
 
   const handleJoin = (e) => {
     e.preventDefault();
     if (!roomCodeInput.trim()) return;
-    onJoinRoom(roomCodeInput.trim().toUpperCase(), playerName);
+    soundManager.playShuffle();
+    onJoinRoom(roomCodeInput.trim().toUpperCase(), playerName.trim() || '玩家');
   };
 
   return (
-    <div className="min-h-screen felt-table flex items-center justify-center p-4">
-      <div className="w-full max-w-lg bg-[#0e2a1b]/95 border border-amber-500/30 rounded-2xl shadow-2xl p-6 sm:p-8 backdrop-blur-md">
-        {/* Brand Header */}
-        <div className="text-center mb-6">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold tracking-wider uppercase mb-3">
-            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-            Host-Authoritative P2P
+    <div className="relative min-h-[100dvh] felt-table flex items-center justify-center p-4 overflow-hidden select-none">
+      {/* Ambient Casino Spotlight & Table Rim Vignette */}
+      <div
+        className="pointer-events-none fixed inset-0"
+        style={{
+          background:
+            'radial-gradient(ellipse 65% 55% at 50% 42%, rgba(28, 98, 52, 0.45) 0%, rgba(10, 38, 20, 0.75) 55%, rgba(3, 12, 6, 0.98) 100%)'
+        }}
+      />
+
+      {/* Decorative Background Floating Cards (Uses existing /cards_modern assets) */}
+      <div className="pointer-events-none fixed inset-0 overflow-hidden opacity-20 sm:opacity-30">
+        <img
+          src="/cards_modern/red_skip.png"
+          alt=""
+          className="absolute -top-8 -left-8 w-36 sm:w-48 rotate-[22deg] blur-[1px] drop-shadow-2xl"
+        />
+        <img
+          src="/cards_modern/blue_reverse.png"
+          alt=""
+          className="absolute top-12 -right-10 w-36 sm:w-48 -rotate-[18deg] blur-[1px] drop-shadow-2xl"
+        />
+        <img
+          src="/cards_modern/yellow_draw2.png"
+          alt=""
+          className="absolute -bottom-10 left-8 w-36 sm:w-48 -rotate-[15deg] blur-[1px] drop-shadow-2xl"
+        />
+        <img
+          src="/cards_modern/wild_draw4.png"
+          alt=""
+          className="absolute -bottom-8 right-10 w-36 sm:w-48 rotate-[16deg] blur-[1px] drop-shadow-2xl"
+        />
+      </div>
+
+      {/* Main Casino Wood & Gold Framed Panel */}
+      <div className="relative z-10 w-full max-w-xl rounded-3xl bg-gradient-to-b from-[#133822]/95 via-[#0b2315]/98 to-[#06140c] border-2 border-amber-500/40 shadow-[0_28px_70px_rgba(0,0,0,0.9),0_0_0_6px_rgba(38,23,12,0.95)] p-6 sm:p-8 backdrop-blur-xl">
+        {/* Subtle Inner Gold Hairline */}
+        <div className="pointer-events-none absolute inset-2.5 rounded-2xl border border-amber-400/15" />
+
+        {/* Hero Brand Showcase with Fanned Actual Cards */}
+        <div className="relative flex flex-col items-center mb-6 pt-2">
+          {/* Fanned 3-Card Showcase Behind Emblem */}
+          <div className="relative h-24 sm:h-28 w-48 flex items-center justify-center mb-1">
+            <img
+              src="/cards_modern/red_draw2.png"
+              alt="Red +2"
+              className="w-16 sm:w-20 rounded-lg shadow-xl -rotate-[22deg] -translate-x-9 translate-y-1.5 transition-transform duration-500 hover:-translate-y-1"
+            />
+            <img
+              src="/cards_modern/wild.png"
+              alt="Wild"
+              className="w-18 sm:w-22 rounded-lg shadow-2xl z-10 -translate-y-1 transition-transform duration-500 hover:-translate-y-3"
+            />
+            <img
+              src="/cards_modern/blue_skip.png"
+              alt="Blue Skip"
+              className="w-16 sm:w-20 rounded-lg shadow-xl rotate-[22deg] translate-x-9 translate-y-1.5 transition-transform duration-500 hover:-translate-y-1"
+            />
+
+            {/* Classic Tilted UNO Emblem Overlay */}
+            <div className="absolute -bottom-2 z-20 px-5 py-1 rounded-full bg-gradient-to-b from-red-500 via-red-600 to-red-800 border-[3px] border-amber-300 shadow-[0_10px_25px_rgba(0,0,0,0.85)] -rotate-6">
+              <span className="font-black text-2xl sm:text-3xl tracking-wider text-amber-300 drop-shadow-[0_2px_2px_rgba(0,0,0,0.9)]">
+                UNO!
+              </span>
+            </div>
           </div>
-          <h1 className="text-4xl sm:text-5xl font-black tracking-tight text-white flex items-center justify-center gap-2">
-            <span className="text-red-500 drop-shadow-[0_2px_10px_rgba(239,68,68,0.5)]">U</span>
-            <span className="text-amber-400 drop-shadow-[0_2px_10px_rgba(244,196,48,0.5)]">N</span>
-            <span className="text-blue-500 drop-shadow-[0_2px_10px_rgba(59,130,246,0.5)]">O</span>
-            <span className="text-green-500 drop-shadow-[0_2px_10px_rgba(34,197,94,0.5)]">!</span>
+
+          <h1 className="text-lg sm:text-xl font-black tracking-wide text-white mt-3">
+            線上多人派對牌桌
           </h1>
-          <p className="text-xs sm:text-sm text-emerald-200/70 mt-1">
-            房主自架極速連線 • 支援 2V2 組隊與多人混戰 • 3D 官方精靈卡牌
+          <p className="text-xs text-emerald-300/70 mt-0.5">
+            支援單人 AI 練習、好友房號連線與 2V2 雙人組隊共視手牌
           </p>
         </div>
 
-        {/* Player Name Input */}
+        {/* Player Nickname Input Box */}
         <div className="mb-5">
-          <label className="block text-xs font-medium text-emerald-300 mb-1.5 uppercase tracking-wider">
-            玩家暱稱
-          </label>
-          <input
-            type="text"
-            value={playerName}
-            onChange={handleNameChange}
-            maxLength={12}
-            placeholder="請輸入你的暱稱..."
-            className="w-full px-4 py-2.5 bg-[#081a10] border border-emerald-500/30 rounded-xl text-white placeholder-emerald-700 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400 transition"
-          />
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="text-xs font-bold text-amber-300/90 tracking-wider">
+              玩家名稱
+            </label>
+            <span className="text-[11px] text-emerald-400/60">
+              最多 12 字元
+            </span>
+          </div>
+          <div className="relative">
+            <input
+              type="text"
+              value={playerName}
+              onChange={handleNameChange}
+              maxLength={12}
+              placeholder="輸入你的牌桌名稱..."
+              className="w-full px-4 py-3 bg-[#05120a] border border-emerald-500/35 rounded-xl text-white font-bold text-sm placeholder-emerald-700 focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-400/25 transition shadow-inner"
+            />
+          </div>
         </div>
 
-        {/* Tab Switcher */}
-        <div className="grid grid-cols-2 gap-2 p-1 bg-[#07170e] rounded-xl border border-emerald-500/20 mb-5">
+        {/* Create / Join Segmented Switcher */}
+        <div className="grid grid-cols-2 gap-2 p-1.5 bg-[#05120a] rounded-2xl border border-emerald-500/25 mb-5 shadow-inner">
           <button
             type="button"
-            onClick={() => setTab('create')}
-            className={`py-2 px-3 text-xs sm:text-sm font-semibold rounded-lg flex items-center justify-center gap-1.5 transition ${
+            onClick={() => handleTabSwitch('create')}
+            className={`py-2.5 px-4 text-xs sm:text-sm font-extrabold rounded-xl flex items-center justify-center gap-2 transition cursor-pointer ${
               tab === 'create'
-                ? 'bg-amber-500 text-black shadow-md'
-                : 'text-emerald-300 hover:text-white'
+                ? 'bg-gradient-to-b from-amber-400 to-amber-500 text-black shadow-[0_4px_14px_rgba(245,158,11,0.35)]'
+                : 'text-emerald-300/80 hover:text-white hover:bg-white/5'
             }`}
           >
             <PlusCircle className="w-4 h-4" />
-            建立房間
+            開設新牌局
           </button>
           <button
             type="button"
-            onClick={() => setTab('join')}
-            className={`py-2 px-3 text-xs sm:text-sm font-semibold rounded-lg flex items-center justify-center gap-1.5 transition ${
+            onClick={() => handleTabSwitch('join')}
+            className={`py-2.5 px-4 text-xs sm:text-sm font-extrabold rounded-xl flex items-center justify-center gap-2 transition cursor-pointer ${
               tab === 'join'
-                ? 'bg-amber-500 text-black shadow-md'
-                : 'text-emerald-300 hover:text-white'
+                ? 'bg-gradient-to-b from-amber-400 to-amber-500 text-black shadow-[0_4px_14px_rgba(245,158,11,0.35)]'
+                : 'text-emerald-300/80 hover:text-white hover:bg-white/5'
             }`}
           >
             <LogIn className="w-4 h-4" />
-            加入房間
+            輸入房號加入
           </button>
         </div>
 
-        {/* Tab 1: Create Room */}
+        {/* TAB 1: CREATE ROOM */}
         {tab === 'create' && (
           <form onSubmit={handleCreate} className="space-y-4">
-            {/* Game Mode Selection */}
+            {/* Game Mode Cards */}
             <div>
-              <label className="block text-xs font-medium text-emerald-300 mb-1.5 uppercase tracking-wider">
-                遊戲模式 (Game Mode)
+              <label className="block text-xs font-bold text-amber-300/90 mb-2 tracking-wider">
+                選擇對戰模式
               </label>
-              <div className="grid grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-2 gap-3">
                 <button
                   type="button"
-                  onClick={() => setGameMode('ffa')}
-                  className={`p-3 rounded-xl border text-left transition flex flex-col justify-between ${
+                  onClick={() => handleModeSelect('ffa')}
+                  className={`relative p-3.5 rounded-2xl border text-left transition flex flex-col justify-between cursor-pointer overflow-hidden ${
                     gameMode === 'ffa'
-                      ? 'bg-amber-500/20 border-amber-400 text-white shadow-md'
-                      : 'bg-[#081a10] border-emerald-500/20 text-emerald-300/70 hover:border-emerald-500/40'
+                      ? 'bg-gradient-to-br from-amber-500/20 to-emerald-950/90 border-amber-400 text-white shadow-[0_0_20px_rgba(245,158,11,0.2)]'
+                      : 'bg-[#06150c] border-emerald-500/20 text-emerald-300/70 hover:border-emerald-500/40'
                   }`}
                 >
-                  <div className="flex items-center gap-1.5 font-bold text-xs sm:text-sm text-white mb-1">
-                    <Swords className="w-4 h-4 text-amber-400" />
-                    多人混戰 (FFA)
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="flex items-center gap-1.5 font-extrabold text-xs sm:text-sm text-white">
+                      <Swords className="w-4 h-4 text-amber-400" />
+                      個人混戰
+                    </span>
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/10 text-amber-300 font-bold">
+                      2-4P
+                    </span>
                   </div>
-                  <div className="text-[11px] opacity-75">
-                    各自為戰，支援 2~4 人，對手手牌蓋牌
-                  </div>
+                  <p className="text-[11px] leading-relaxed text-emerald-200/75">
+                    各自為政，手牌全蓋牌，最先出清手牌者獨得積分。
+                  </p>
                 </button>
 
                 <button
                   type="button"
-                  onClick={() => setGameMode('2v2')}
-                  className={`p-3 rounded-xl border text-left transition flex flex-col justify-between ${
+                  onClick={() => handleModeSelect('2v2')}
+                  className={`relative p-3.5 rounded-2xl border text-left transition flex flex-col justify-between cursor-pointer overflow-hidden ${
                     gameMode === '2v2'
-                      ? 'bg-amber-500/20 border-amber-400 text-white shadow-md'
-                      : 'bg-[#081a10] border-emerald-500/20 text-emerald-300/70 hover:border-emerald-500/40'
+                      ? 'bg-gradient-to-br from-amber-500/20 to-emerald-950/90 border-amber-400 text-white shadow-[0_0_20px_rgba(245,158,11,0.2)]'
+                      : 'bg-[#06150c] border-emerald-500/20 text-emerald-300/70 hover:border-emerald-500/40'
                   }`}
                 >
-                  <div className="flex items-center gap-1.5 font-bold text-xs sm:text-sm text-white mb-1">
-                    <UserCheck className="w-4 h-4 text-amber-400" />
-                    2V2 雙人組隊
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="flex items-center gap-1.5 font-extrabold text-xs sm:text-sm text-white">
+                      <UserCheck className="w-4 h-4 text-amber-400" />
+                      2V2 雙人組隊
+                    </span>
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-400/20 text-amber-300 font-bold">
+                      TEAM
+                    </span>
                   </div>
-                  <div className="text-[11px] opacity-75">
-                    對面是隊友，即時可見隊友手牌共謀勝利
-                  </div>
+                  <p className="text-[11px] leading-relaxed text-emerald-200/75">
+                    對座互為隊友，牌桌上直接明牌共享隊友手牌、助攻獲勝。
+                  </p>
                 </button>
               </div>
             </div>
 
-            {/* Stacking Rule options */}
-            <div className="bg-[#081a10] border border-emerald-500/20 rounded-xl p-3.5">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
+            {/* Stacking Rule Toggle Row */}
+            <div
+              onClick={() => {
+                soundManager.playTick();
+                setAllowStacking(!allowStacking);
+              }}
+              className="bg-[#06150c] hover:bg-[#081c10] border border-emerald-500/25 rounded-2xl p-3.5 flex items-center justify-between cursor-pointer transition"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-amber-500/15 border border-amber-400/30 flex items-center justify-center shrink-0">
                   <Flame className="w-5 h-5 text-amber-400" />
-                  <div>
-                    <div className="text-xs sm:text-sm font-bold text-white">疊牌規則 (Stacking)</div>
-                    <div className="text-[11px] text-emerald-300/70">
-                      允許 +2 疊 +2，+4 疊 +4 累積罰抽
-                    </div>
+                </div>
+                <div>
+                  <div className="text-xs sm:text-sm font-extrabold text-white">
+                    允許累加上牌 (+2 / +4 疊牌)
+                  </div>
+                  <div className="text-[11px] text-emerald-300/65">
+                    遭上家出 +2 或 +4 時，可打出同類牌將罰抽張數轉嫁給下家
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setAllowStacking(!allowStacking)}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                    allowStacking ? 'bg-amber-500' : 'bg-gray-700'
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                      allowStacking ? 'translate-x-6' : 'translate-x-1'
-                    }`}
-                  />
-                </button>
               </div>
+              <button
+                type="button"
+                aria-label="切換疊牌規則"
+                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+                  allowStacking ? 'bg-amber-500' : 'bg-slate-700'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                    allowStacking ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
             </div>
 
-            <div className="p-3 bg-emerald-950/40 border border-emerald-500/20 rounded-xl text-xs text-emerald-300/80 flex items-start gap-2">
-              <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+            {/* Info Notice */}
+            <div className="px-3.5 py-2.5 bg-emerald-950/40 border border-emerald-500/20 rounded-xl text-[11px] text-emerald-200/80 flex items-center gap-2.5">
+              <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
               <span>
-                <strong>自選對手模式：</strong>進入房間後可自由切換每一席為「電腦」或「真人」，即使單人也能與 AI 電腦組隊練習！
+                進入大廳後仍可隨時調整積分制、連續抽牌、質疑 +4 以及更換電腦或真人座位。
               </span>
             </div>
 
+            {/* Submit CTA */}
             <button
               type="submit"
-              className="w-full py-3.5 px-4 bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-black font-extrabold text-sm sm:text-base rounded-xl shadow-lg shadow-amber-500/20 active:translate-y-0.5 transition duration-150 flex items-center justify-center gap-2"
+              className="w-full py-3.5 px-5 bg-gradient-to-b from-amber-400 via-amber-500 to-amber-600 hover:from-amber-300 hover:to-amber-500 text-black font-black text-sm sm:text-base rounded-2xl shadow-[0_8px_25px_rgba(245,158,11,0.35)] active:translate-y-0.5 transition duration-150 flex items-center justify-center gap-2 cursor-pointer border border-amber-200/60"
             >
               <Users className="w-5 h-5" />
-              建立房間並進入大廳
+              <span>開設房間並前往牌桌大廳</span>
+              <ChevronRight className="w-4 h-4" />
             </button>
           </form>
         )}
 
-        {/* Tab 2: Join Room */}
+        {/* TAB 2: JOIN ROOM */}
         {tab === 'join' && (
           <form onSubmit={handleJoin} className="space-y-4">
-            <div>
-              <label className="block text-xs font-medium text-emerald-300 mb-1.5 uppercase tracking-wider">
-                房間號碼 (Room Code)
+            <div className="bg-[#06150c] border border-emerald-500/25 rounded-2xl p-5 text-center">
+              <label className="block text-xs font-bold text-amber-300/90 mb-2 tracking-wider">
+                輸入好友房間代碼
               </label>
               <input
                 type="text"
                 value={roomCodeInput}
                 onChange={(e) => setRoomCodeInput(e.target.value.toUpperCase())}
-                placeholder="例如: UNO-7829"
-                className="w-full px-4 py-3 bg-[#081a10] border border-emerald-500/30 rounded-xl text-white font-mono text-center tracking-widest text-lg placeholder-emerald-700 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400 transition"
+                placeholder="UNO-0000"
+                className="w-full px-4 py-3.5 bg-[#040d07] border-2 border-emerald-500/35 rounded-xl text-amber-400 font-mono font-black text-center tracking-[0.2em] text-2xl placeholder-emerald-800/70 focus:outline-none focus:border-amber-400 transition shadow-inner"
                 autoFocus
               />
+              <p className="text-[11px] text-emerald-300/60 mt-2.5">
+                請向房主索取 8 碼房號（例如 UNO-7829），或直接開啟房主分享的邀請網址
+              </p>
             </div>
 
             <button
               type="submit"
               disabled={!roomCodeInput.trim()}
-              className="w-full py-3.5 px-4 bg-gradient-to-r from-emerald-500 to-emerald-400 hover:from-emerald-400 hover:to-emerald-300 disabled:opacity-50 disabled:cursor-not-allowed text-black font-extrabold text-sm sm:text-base rounded-xl shadow-lg shadow-emerald-500/20 active:translate-y-0.5 transition duration-150 flex items-center justify-center gap-2"
+              className="w-full py-3.5 px-5 bg-gradient-to-b from-emerald-400 via-emerald-500 to-emerald-600 hover:from-emerald-300 hover:to-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-black font-black text-sm sm:text-base rounded-2xl shadow-[0_8px_25px_rgba(16,185,129,0.3)] active:translate-y-0.5 transition duration-150 flex items-center justify-center gap-2 cursor-pointer border border-emerald-200/50"
             >
-              <LogIn className="w-5 h-5" />
-              加入房間
+              <Sparkles className="w-5 h-5" />
+              <span>立即連線加入房間</span>
             </button>
           </form>
         )}
