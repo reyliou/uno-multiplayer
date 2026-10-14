@@ -43,12 +43,18 @@ class CardAnimationService {
       return;
     }
 
+    // Ensure flyer dimensions are card-sized, never blown up or collapsed
+    const cardW = (fromRect.width > 30 && fromRect.width < 200) ? fromRect.width : 84;
+    const cardH = (fromRect.height > 40 && fromRect.height < 300) ? fromRect.height : 126;
+    const startLeft = fromRect.left + (fromRect.width - cardW) / 2;
+    const startTop = fromRect.top + (fromRect.height - cardH) / 2;
+
     const flyer = document.createElement('div');
     flyer.className = 'fixed pointer-events-none z-[9999] select-none';
-    flyer.style.width = `${fromRect.width}px`;
-    flyer.style.height = `${fromRect.height}px`;
-    flyer.style.left = `${fromRect.left}px`;
-    flyer.style.top = `${fromRect.top}px`;
+    flyer.style.width = `${cardW}px`;
+    flyer.style.height = `${cardH}px`;
+    flyer.style.left = `${startLeft}px`;
+    flyer.style.top = `${startTop}px`;
     flyer.style.transformOrigin = 'center center';
     flyer.style.transform = `translate3d(0, 0, 0) rotate(${startRotation}deg) scale(${startScale})`;
     flyer.style.transition = `all ${duration}ms cubic-bezier(0.25, 1, 0.5, 1)`;
@@ -59,9 +65,19 @@ class CardAnimationService {
     flyer.appendChild(img);
     document.body.appendChild(flyer);
 
-    const deltaX = toRect.left + (toRect.width - fromRect.width) / 2 - fromRect.left;
-    const deltaY = toRect.top + (toRect.height - fromRect.height) / 2 - fromRect.top;
-    const scaleFactor = toRect.width / fromRect.width * endScale;
+    // Translate to center of destination element
+    const deltaX = toRect.left + (toRect.width - cardW) / 2 - startLeft;
+    const deltaY = toRect.top + (toRect.height - cardH) / 2 - startTop;
+
+    // Only apply width-based scale factor if toRect is a single card element (width between 40px and 130px).
+    // If toRect is an entire player container/hand bar (> 130px), keep standard card scale to prevent huge bloated cards!
+    let scaleFactor = endScale;
+    if (toRect.width >= 40 && toRect.width <= 130 && cardW > 0) {
+      const ratio = toRect.width / cardW;
+      if (ratio >= 0.5 && ratio <= 1.35) {
+        scaleFactor = ratio * endScale;
+      }
+    }
 
     // Force reflow
     void flyer.offsetWidth;
