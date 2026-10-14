@@ -1,4 +1,4 @@
-// CardView.jsx - 3D Modern UNO Card Renderer
+// CardView.jsx - 3D Modern UNO & Rabbids DLC Card Renderer
 import React, { useState } from 'react';
 
 export function CardView({
@@ -7,6 +7,7 @@ export function CardView({
   isSmall = false,
   isBack = false,
   isTopCard = false,
+  deckTheme = 'classic',
   onClick,
   style = {},
   className = ''
@@ -16,19 +17,34 @@ export function CardView({
   let assetKey = 'card_back';
   if (!isBack && card) {
     if (card.color === 'wild') {
-      // In hand, Wild cards MUST ALWAYS be pristine uncolored (wild or wild_draw4)!
+      // In hand, Wild cards MUST ALWAYS be pristine uncolored (wild, wild_draw4 or rabbids special)!
       // ONLY the active topCard on the table's discard pile shows the chosen color variant.
       if (isTopCard && card.chosenColor) {
-        assetKey = card.value === 'wild_draw4' ? `wild_draw4_${card.chosenColor}` : `wild_${card.chosenColor}`;
+        if (card.value === 'wild_draw4') {
+          assetKey = `wild_draw4_${card.chosenColor}`;
+        } else if (card.value === 'rabbids_wild_shield') {
+          assetKey = `rabbids_wild_shield_${card.chosenColor}`;
+        } else if (card.value.startsWith('rabbids_')) {
+          assetKey = card.assetKey;
+        } else {
+          assetKey = `wild_${card.chosenColor}`;
+        }
       } else {
-        assetKey = card.value === 'wild_draw4' ? 'wild_draw4' : 'wild';
+        if (card.value === 'wild_draw4') {
+          assetKey = 'wild_draw4';
+        } else if (card.value.startsWith('rabbids_')) {
+          assetKey = card.assetKey;
+        } else {
+          assetKey = 'wild';
+        }
       }
     } else {
       assetKey = card.displayAssetKey || card.assetKey || 'card_back';
     }
   }
 
-  const imgSrc = `/cards_modern/${assetKey}.png`;
+  const effectiveTheme = (deckTheme === 'rabbids' || card?.deckTheme === 'rabbids') ? 'cards_rabbids' : 'cards_modern';
+  const imgSrc = `/${effectiveTheme}/${assetKey}.png`;
 
   const sizeClasses = isSmall
     ? 'w-10 h-14 sm:w-12 sm:h-16 rounded-md'

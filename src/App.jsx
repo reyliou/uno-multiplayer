@@ -17,6 +17,7 @@ export default function App() {
   const [gameMode, setGameMode] = useState('ffa'); // 'ffa' | '2v2'
   const [targetScore, setTargetScore] = useState(500); // 0 = casual/no score limit
   const [drawRule, setDrawRule] = useState('draw_one'); // 'draw_one' | 'draw_until_playable'
+  const [deckTheme, setDeckTheme] = useState('classic'); // 'classic' | 'rabbids'
   const [gameState, setGameState] = useState(null);
   const [errorMessage, setErrorMessage] = useState('');
 
@@ -30,6 +31,7 @@ export default function App() {
       setRoomCode(data.roomCode);
       if (data.targetScore !== undefined) setTargetScore(data.targetScore);
       if (data.drawRule) setDrawRule(data.drawRule);
+      if (data.deckTheme) setDeckTheme(data.deckTheme);
       setView((prev) => (prev === 'home' ? 'lobby' : prev));
     };
 
@@ -43,6 +45,7 @@ export default function App() {
       if (data && data.allowChallengeWildDraw4 !== undefined) setAllowChallengeWildDraw4(data.allowChallengeWildDraw4);
       if (data && data.targetScore !== undefined) setTargetScore(data.targetScore);
       if (data && data.drawRule) setDrawRule(data.drawRule);
+      if (data && data.deckTheme) setDeckTheme(data.deckTheme);
       setView('lobby');
     };
 
@@ -126,6 +129,12 @@ export default function App() {
   const handleSetDrawRule = (rule) => {
     setDrawRule(rule);
     p2pNetwork.setDrawRule(rule);
+  };
+
+  // Set deck theme (Host only)
+  const handleSetDeckTheme = (theme) => {
+    setDeckTheme(theme);
+    p2pNetwork.setDeckTheme(theme);
   };
 
   // Start next round (Host only)
@@ -266,6 +275,8 @@ export default function App() {
           allowChallengeWildDraw4={allowChallengeWildDraw4}
           targetScore={targetScore}
           drawRule={drawRule}
+          deckTheme={deckTheme}
+          onSetDeckTheme={handleSetDeckTheme}
           onToggleAi={handleToggleAi}
           onToggleStacking={handleToggleStacking}
           onToggleChallengeRule={handleToggleChallengeRule}

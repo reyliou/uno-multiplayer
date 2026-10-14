@@ -95,6 +95,7 @@ export class P2PNetwork {
     this.allowStacking = allowStacking;
     this.allowChallengeWildDraw4 = true;
     this.gameMode = gameMode;
+    this.deckTheme = 'classic'; // 'classic' | 'rabbids'
     this.gameStarted = false;
     this.guestConns.clear();
     this.resetLobbyIdleTimer();
@@ -336,7 +337,8 @@ export class P2PNetwork {
           allowStacking: this.allowStacking,
           allowChallengeWildDraw4: this.allowChallengeWildDraw4,
           targetScore: this.targetScore,
-          drawRule: this.drawRule
+          drawRule: this.drawRule,
+          deckTheme: this.deckTheme || 'classic'
         });
 
         this.broadcastLobbyUpdate();
@@ -652,6 +654,12 @@ export class P2PNetwork {
     this.broadcastLobbyUpdate();
   }
 
+  setDeckTheme(theme) {
+    if (!this.isHost || this.gameStarted) return;
+    this.deckTheme = theme === 'rabbids' ? 'rabbids' : 'classic';
+    this.broadcastLobbyUpdate();
+  }
+
   startGame() {
     if (!this.isHost || this.gameStarted) return;
 
@@ -676,7 +684,8 @@ export class P2PNetwork {
       {
         targetScore: this.targetScore,
         drawRule: this.drawRule,
-        allowChallengeWildDraw4: this.allowChallengeWildDraw4
+        allowChallengeWildDraw4: this.allowChallengeWildDraw4,
+        deckTheme: this.deckTheme || 'classic'
       }
     );
     this.ai = new UnoAI(this.engine);
@@ -817,9 +826,10 @@ export class P2PNetwork {
     if (!curPlayer) return;
 
     if (!curPlayer.isAi) {
+      const durationMs = (this.engine.turnDuration || 15) * 1000;
       this.turnTimeoutTimer = setTimeout(() => {
         this.handleTurnTimeout(curIdx);
-      }, 15000);
+      }, durationMs);
     }
   }
 
@@ -1366,6 +1376,7 @@ export class P2PNetwork {
       allowChallengeWildDraw4: this.allowChallengeWildDraw4,
       targetScore: this.targetScore,
       drawRule: this.drawRule,
+      deckTheme: this.deckTheme || 'classic',
       roomCode: this.roomCode
     };
 
@@ -1498,6 +1509,7 @@ export class P2PNetwork {
         if (packet.allowChallengeWildDraw4 !== undefined) this.allowChallengeWildDraw4 = packet.allowChallengeWildDraw4;
         this.targetScore = packet.targetScore !== undefined ? packet.targetScore : 500;
         this.drawRule = packet.drawRule || 'draw_one';
+        this.deckTheme = packet.deckTheme || 'classic';
         break;
 
       case 'LOBBY_UPDATE':
@@ -1507,6 +1519,7 @@ export class P2PNetwork {
         if (packet.allowChallengeWildDraw4 !== undefined) this.allowChallengeWildDraw4 = packet.allowChallengeWildDraw4;
         this.targetScore = packet.targetScore !== undefined ? packet.targetScore : 500;
         this.drawRule = packet.drawRule || 'draw_one';
+        this.deckTheme = packet.deckTheme || 'classic';
         if (this.onLobbyUpdate) this.onLobbyUpdate(packet);
         break;
 
@@ -1518,6 +1531,7 @@ export class P2PNetwork {
         if (packet.allowChallengeWildDraw4 !== undefined) this.allowChallengeWildDraw4 = packet.allowChallengeWildDraw4;
         this.targetScore = packet.targetScore !== undefined ? packet.targetScore : 500;
         this.drawRule = packet.drawRule || 'draw_one';
+        this.deckTheme = packet.deckTheme || 'classic';
         if (this.onReturnToLobby) this.onReturnToLobby(packet);
         break;
 

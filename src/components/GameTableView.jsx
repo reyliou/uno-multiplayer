@@ -249,7 +249,7 @@ export function GameTableView({
                 }}
                 className="transition-all duration-200 drop-shadow-[-8px_10px_14px_rgba(0,0,0,0.8)] card-reflection"
               >
-                <CardView
+                <CardView deckTheme={gameState?.deckTheme || 'classic'}
                   isBack
                   isSmall
                   className="!w-[72px] !h-[108px] sm:!w-[84px] sm:!h-[126px] !rounded-xl"
@@ -286,7 +286,7 @@ export function GameTableView({
                 }}
                 className="transition-all duration-200 drop-shadow-[8px_10px_14px_rgba(0,0,0,0.8)] card-reflection"
               >
-                <CardView
+                <CardView deckTheme={gameState?.deckTheme || 'classic'}
                   isBack
                   isSmall
                   className="!w-[72px] !h-[108px] sm:!w-[84px] sm:!h-[126px] !rounded-xl"
@@ -306,7 +306,7 @@ export function GameTableView({
             key={idx}
             className="transition-transform duration-150 drop-shadow-[0_8px_14px_rgba(0,0,0,0.7)]"
           >
-            <CardView
+            <CardView deckTheme={gameState?.deckTheme || 'classic'}
               isBack
               isSmall
               className="!w-[64px] !h-[96px] sm:!w-[74px] sm:!h-[110px] !rounded-lg"
@@ -869,7 +869,7 @@ export function GameTableView({
                       className="transition-transform duration-150 hover:-translate-y-2 hover:scale-110 hover:z-30 cursor-pointer"
                       title={`隊友手牌: ${c.color} ${c.value}`}
                     >
-                      <CardView
+                      <CardView deckTheme={gameState?.deckTheme || 'classic'}
                         card={c}
                         isSmall
                         className="!w-[64px] !h-[96px] sm:!w-[74px] sm:!h-[110px] !rounded-lg drop-shadow-[0_8px_16px_rgba(0,0,0,0.6)]"
@@ -1093,7 +1093,7 @@ export function GameTableView({
                       : 'cursor-pointer active:scale-95'
                   }`}
                 >
-                  <CardView isBack />
+                  <CardView deckTheme={gameState?.deckTheme || 'classic'} isBack />
                 </div>
               </div>
 
@@ -1118,7 +1118,7 @@ export function GameTableView({
                       zIndex: idx
                     }}
                   >
-                    <CardView card={discardedCard} className="shadow-md filter brightness-90" />
+                    <CardView deckTheme={gameState?.deckTheme || 'classic'} card={discardedCard} className="shadow-md filter brightness-90" />
                   </div>
                 ))}
 
@@ -1130,7 +1130,7 @@ export function GameTableView({
                       : 'rotate(-3deg)'
                   }}
                 >
-                  <CardView card={topCard} isTopCard className="shadow-xl" />
+                  <CardView deckTheme={gameState?.deckTheme || 'classic'} card={topCard} isTopCard className="shadow-xl" />
                 </div>
               </div>
 
@@ -1356,7 +1356,7 @@ export function GameTableView({
                       (isMyTurn && !isDealing) ? 'hover:z-40 hover:!-translate-y-5 cursor-pointer' : 'select-none'
                     }`}
                   >
-                    <CardView
+                    <CardView deckTheme={gameState?.deckTheme || 'classic'}
                       card={card}
                       isPlayable={isPlayable}
                       onClick={(e) => handleCardClick(card, e?.currentTarget)}

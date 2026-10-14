@@ -30,11 +30,13 @@ export class UnoAI {
       }
     }
 
-    // AI Step 2: Stacking Penalty Defense Check (+2/+4 stack defense or +4 challenge)
+    // AI Step 2: Stacking Penalty Defense Check (+2/+4 stack defense, Wild Shield or +4 challenge)
     if (this.engine.stackedDrawCount > 0) {
       const validStackCards = this.engine.getValidCardsForPlayer(playerIndex);
       if (validStackCards.length > 0) {
-        const chosenCard = validStackCards.find(c => c.value === 'draw2') || validStackCards[0];
+        // Prefer rabbids_wild_shield to deflect incoming draw, then matching stack cards
+        const shieldCard = validStackCards.find(c => c.value === 'rabbids_wild_shield');
+        const chosenCard = shieldCard || validStackCards.find(c => c.value === 'draw2') || validStackCards[0];
         let chosenColor = null;
         if (chosenCard.color === 'wild') {
           chosenColor = this.getBestColorForHand(player.hand, teammate);
@@ -80,6 +82,9 @@ export class UnoAI {
     if (isNextPlayerDanger) {
       // Emergency attack against danger opponent
       chosenCard = validCards.find(c => c.value === 'wild_draw4') ||
+                   validCards.find(c => c.value === 'rabbids_explosive') ||
+                   validCards.find(c => c.value === 'rabbids_hurry_up') ||
+                   validCards.find(c => c.value === 'rabbids_comin_through') ||
                    validCards.find(c => c.value === 'draw2') ||
                    validCards.find(c => c.value === 'skip') ||
                    validCards.find(c => c.value === 'reverse');
@@ -98,8 +103,8 @@ export class UnoAI {
     }
 
     if (!chosenCard) {
-      // Normal attack against opponent
-      const actionCards = validCards.filter(c => ['draw2', 'skip', 'reverse'].includes(c.value));
+      // Normal attack against opponent (including Rabbids special cards)
+      const actionCards = validCards.filter(c => ['draw2', 'skip', 'reverse', 'rabbids_comin_through', 'rabbids_explosive', 'rabbids_hurry_up'].includes(c.value));
       if (actionCards.length > 0 && !isNextTeammate) {
         chosenCard = actionCards[0];
       }

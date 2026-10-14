@@ -25,6 +25,7 @@ export class UnoEngine {
     this.targetScore = options.targetScore !== undefined ? options.targetScore : 500; // 0 = casual/no score limit
     this.drawRule = options.drawRule || 'draw_one'; // 'draw_one' | 'draw_until_playable'
     this.allowChallengeWildDraw4 = options.allowChallengeWildDraw4 !== undefined ? options.allowChallengeWildDraw4 : true;
+    this.deckTheme = options.deckTheme || 'classic'; // 'classic' | 'rabbids'
     this.isMatchOver = false;
     this.matchWinner = null;
     this.lastRoundPoints = 0;
@@ -32,6 +33,10 @@ export class UnoEngine {
   }
 
   reset() {
+    // Rabbids DLC theme special states
+    this.hurryUpTurns = 0;
+    this.explosiveActive = false;
+
     this.drawPile = this.generateDeck();
     this.shuffle(this.drawPile);
     this.discardPile = [];
@@ -87,9 +92,9 @@ export class UnoEngine {
       }
     }
 
-    // Flip first card (must not be Wild Draw 4)
+    // Flip first card (must not be Wild or Rabbids special card)
     let firstCard = this.drawCardRaw();
-    while (firstCard.value === 'wild_draw4') {
+    while (firstCard.value === 'wild_draw4' || firstCard.color === 'wild' || firstCard.value.startsWith('rabbids_')) {
       this.drawPile.unshift(firstCard);
       this.shuffle(this.drawPile);
       firstCard = this.drawCardRaw();
@@ -230,6 +235,40 @@ export class UnoEngine {
       });
     }
 
+    // In Rabbids DLC mode, add 2x of each of the 4 special Rabbids action cards (total 8 cards)
+    if (this.deckTheme === 'rabbids') {
+      for (let i = 0; i < 2; i++) {
+        deck.push({
+          id: `c_${idCounter++}`,
+          color: 'wild',
+          value: 'rabbids_hurry_up',
+          assetKey: 'rabbids_hurry_up',
+          points: 50
+        });
+        deck.push({
+          id: `c_${idCounter++}`,
+          color: 'wild',
+          value: 'rabbids_explosive',
+          assetKey: 'rabbids_explosive',
+          points: 50
+        });
+        deck.push({
+          id: `c_${idCounter++}`,
+          color: 'wild',
+          value: 'rabbids_comin_through',
+          assetKey: 'rabbids_comin_through',
+          points: 50
+        });
+        deck.push({
+          id: `c_${idCounter++}`,
+          color: 'wild',
+          value: 'rabbids_wild_shield',
+          assetKey: 'rabbids_wild_shield',
+          points: 50
+        });
+      }
+    }
+
     return deck;
   }
 
@@ -292,6 +331,8 @@ export class UnoEngine {
     if (this.isChoosingColor) return false;
 
     if (this.stackedDrawCount > 0) {
+      // In Rabbids mode, rabbids_wild_shield can ALWAYS be played to defend and deflect incoming stacked draw!
+      if (card.value === 'rabbids_wild_shield') return true;
       if (!this.allowStacking) return false;
       return card.value === this.stackedDrawType;
     }
@@ -407,7 +448,15 @@ export class UnoEngine {
         const winColor = chosenColor || this.getBestColorForPlayer(playerIndex);
         this.currentColor = winColor;
         card.chosenColor = winColor;
-        card.displayAssetKey = card.value === 'wild_draw4' ? `wild_draw4_${winColor}` : `wild_${winColor}`;
+        if (card.value === 'wild_draw4') {
+          card.displayAssetKey = `wild_draw4_${winColor}`;
+        } else if (card.value === 'rabbids_wild_shield') {
+          card.displayAssetKey = `rabbids_wild_shield_${winColor}`;
+        } else if (card.value.startsWith('rabbids_')) {
+          card.displayAssetKey = card.assetKey;
+        } else {
+          card.displayAssetKey = `wild_${winColor}`;
+        }
       }
       this.gameStatus = 'game_over';
       this.winner = player;
@@ -474,7 +523,15 @@ export class UnoEngine {
       this.currentColor = chosenColor || 'red';
       this.currentValue = card.value;
       card.chosenColor = this.currentColor;
-      card.displayAssetKey = card.value === 'wild_draw4' ? `wild_draw4_${this.currentColor}` : `wild_${this.currentColor}`;
+      if (card.value === 'wild_draw4') {
+        card.displayAssetKey = `wild_draw4_${this.currentColor}`;
+      } else if (card.value === 'rabbids_wild_shield') {
+        card.displayAssetKey = `rabbids_wild_shield_${this.currentColor}`;
+      } else if (card.value.startsWith('rabbids_')) {
+        card.displayAssetKey = card.assetKey;
+      } else {
+        card.displayAssetKey = `wild_${this.currentColor}`;
+      }
       effectMsg = `指定顏色為【${this.colorNames[this.currentColor]}】！`;
     } else {
       this.currentColor = card.color;
@@ -520,6 +577,30 @@ export class UnoEngine {
       }
     }
 
+    // Handle Rabbids DLC Special Action Cards
+    if (card.value === 'rabbids_hurry_up') {
+      this.hurryUpTurns = this.playerCount;
+      effectMsg += ` ⚡ 瘋狂快抽觸發！接下來 ${this.playerCount} 回合每位玩家只有 3 秒思考時間！`;
+    } else if (card.value === 'rabbids_explosive') {
+      this.explosiveActive = true;
+      effectMsg += ` 💣 炸彈已安裝！下一位被迫抽牌或承受罰抽的玩家，將額外多抽 +4 張炸彈牌！`;
+    } else if (card.value === 'rabbids_comin_through') {
+      this.players.forEach((p, idx) => {
+        if (idx !== playerIndex) {
+          this.drawCardsForPlayer(idx, 1);
+        }
+      });
+      effectMsg += ` 🌪️ 瘋狂借過！牌桌所有其他玩家被迫各抽 1 張牌！`;
+    } else if (card.value === 'rabbids_wild_shield') {
+      if (this.stackedDrawCount > 0) {
+        const nextVictim = this.players[this.getNextTurnIndex(1)];
+        effectMsg += ` 🛡️ 兔兔盾牌反彈！將累積的【+${this.stackedDrawCount} 張】罰抽全數轉移給 ${nextVictim.name}！`;
+        nextStep = 1;
+      } else {
+        effectMsg += ` 🛡️ 兔兔盾牌防護！`;
+      }
+    }
+
     let skippedPlayer = null;
     if (card.value === 'skip') {
       skippedPlayer = this.players[this.getNextTurnIndex(1)];
@@ -550,7 +631,12 @@ export class UnoEngine {
     this.hasDrawnThisTurn = false;
     this.currentTurn = this.getNextTurnIndex(nextStep);
     this.turnStartTime = Date.now();
-    this.turnDuration = 15;
+    if (this.hurryUpTurns > 0) {
+      this.hurryUpTurns--;
+      this.turnDuration = this.hurryUpTurns > 0 ? 3 : 15;
+    } else {
+      this.turnDuration = 15;
+    }
 
     return {
       success: true,
@@ -577,7 +663,36 @@ export class UnoEngine {
     this.currentColor = finalColor;
     this.currentValue = card.value;
     card.chosenColor = finalColor;
-    card.displayAssetKey = card.value === 'wild_draw4' ? `wild_draw4_${finalColor}` : `wild_${finalColor}`;
+    if (card.value === 'rabbids_hurry_up') {
+      this.hurryUpTurns = this.playerCount;
+      effectMsg += ` ⚡ 瘋狂快抽觸發！接下來 ${this.playerCount} 回合每位玩家只有 3 秒思考時間！`;
+    } else if (card.value === 'rabbids_explosive') {
+      this.explosiveActive = true;
+      effectMsg += ` 💣 炸彈已安裝！下一位被迫抽牌或承受罰抽的玩家，將額外多抽 +4 張炸彈牌！`;
+    } else if (card.value === 'rabbids_comin_through') {
+      this.players.forEach((p, idx) => {
+        if (idx !== playerIndex) {
+          this.drawCardsForPlayer(idx, 1);
+        }
+      });
+      effectMsg += ` 🌪️ 瘋狂借過！所有其他玩家被迫各抽 1 張牌！`;
+    } else if (card.value === 'rabbids_wild_shield') {
+      if (this.stackedDrawCount > 0) {
+        const nextVictim = this.players[this.getNextTurnIndex(1)];
+        effectMsg += ` 🛡️ 兔兔盾牌反彈！將累積的【+${this.stackedDrawCount} 張】罰抽全數轉移給 ${nextVictim.name}！`;
+        nextStep = 1;
+      } else {
+        effectMsg += ` 🛡️ 兔兔盾牌防護！`;
+      }
+    } else if (card.value === 'wild_draw4') {
+      card.displayAssetKey = `wild_draw4_${finalColor}`;
+    } else if (card.value === 'rabbids_wild_shield') {
+      card.displayAssetKey = `rabbids_wild_shield_${finalColor}`;
+    } else if (card.value.startsWith('rabbids_')) {
+      card.displayAssetKey = card.assetKey;
+    } else {
+      card.displayAssetKey = `wild_${finalColor}`;
+    }
 
     this.isChoosingColor = false;
     this.colorChoosingPlayerIndex = null;
@@ -625,7 +740,12 @@ export class UnoEngine {
     this.hasDrawnThisTurn = false;
     this.currentTurn = this.getNextTurnIndex(nextStep);
     this.turnStartTime = Date.now();
-    this.turnDuration = 15;
+    if (this.hurryUpTurns > 0) {
+      this.hurryUpTurns--;
+      this.turnDuration = this.hurryUpTurns > 0 ? 3 : 15;
+    } else {
+      this.turnDuration = 15;
+    }
 
     return {
       success: true,
@@ -647,6 +767,12 @@ export class UnoEngine {
     }
     if (this.hasDrawnThisTurn) {
       return { success: false, reason: '本回合已經主動抽過牌了，無法重複抽牌！' };
+    }
+
+    if (this.explosiveActive) {
+      this.explosiveActive = false;
+      this.drawCardsForPlayer(playerIndex, 4);
+      this.addLog(`💥 轟！！！定時炸彈在【${this.players[playerIndex].name}】抽牌時引爆！額外多抽了 4 張牌！`);
     }
 
     const card = this.drawCardRaw();
@@ -704,6 +830,12 @@ export class UnoEngine {
     this.hasDrawnThisTurn = false;
     this.currentTurn = this.getNextTurnIndex(step);
     this.turnStartTime = Date.now();
+    if (this.hurryUpTurns > 0) {
+      this.hurryUpTurns--;
+      this.turnDuration = this.hurryUpTurns > 0 ? 3 : 15;
+    } else {
+      this.turnDuration = 15;
+    }
     return this.currentTurn;
   }
 
@@ -725,6 +857,12 @@ export class UnoEngine {
   finishPenaltyDraw(playerIndex, count) {
     const player = this.players[playerIndex];
     if (!player) return;
+    if (this.explosiveActive) {
+      this.explosiveActive = false;
+      this.drawCardsForPlayer(playerIndex, 4);
+      count += 4;
+      this.addLog(`💥 轟！！！定時炸彈在【${player.name}】罰抽時引爆！罰抽額外增加 +4 張牌！`);
+    }
     this.stackedDrawCount = 0;
     this.stackedDrawType = null;
     this.lastWildDraw4Info = null;
@@ -1022,6 +1160,10 @@ export class UnoEngine {
     if (card.value === 'draw2') return `${colName} +2 罰抽牌`;
     if (card.value === 'wild') return `萬用牌 (Wild)`;
     if (card.value === 'wild_draw4') return `萬用 +4 罰抽牌 (Wild Draw 4)`;
+    if (card.value === 'rabbids_hurry_up') return `瘋狂快抽 Hurry Up! (3秒限時)`;
+    if (card.value === 'rabbids_explosive') return `瘋狂定時炸彈 Explosive (+4 Extra)`;
+    if (card.value === 'rabbids_comin_through') return `瘋狂借過 Comin' Through (全員抽1張)`;
+    if (card.value === 'rabbids_wild_shield') return `瘋狂兔兔盾牌 Wild Shield (反彈/防禦)`;
     return `${colName} ${card.value}`;
   }
 
@@ -1038,9 +1180,19 @@ export class UnoEngine {
     let topDisplayKey = top ? (top.displayAssetKey || top.assetKey) : 'card_back';
     if (top && top.color === 'wild') {
       if (this.isChoosingColor || !top.chosenColor) {
-        topDisplayKey = top.value === 'wild_draw4' ? 'wild_draw4' : 'wild';
+        if (top.value === 'wild_draw4') topDisplayKey = 'wild_draw4';
+        else if (top.value.startsWith('rabbids_')) topDisplayKey = top.assetKey;
+        else topDisplayKey = 'wild';
       } else {
-        topDisplayKey = top.value === 'wild_draw4' ? `wild_draw4_${top.chosenColor}` : `wild_${top.chosenColor}`;
+        if (top.value === 'wild_draw4') {
+          topDisplayKey = `wild_draw4_${top.chosenColor}`;
+        } else if (top.value === 'rabbids_wild_shield') {
+          topDisplayKey = `rabbids_wild_shield_${top.chosenColor}`;
+        } else if (top.value.startsWith('rabbids_')) {
+          topDisplayKey = top.assetKey;
+        } else {
+          topDisplayKey = `wild_${top.chosenColor}`;
+        }
       }
     }
 
@@ -1056,6 +1208,9 @@ export class UnoEngine {
     };
 
     return {
+      deckTheme: this.deckTheme || 'classic',
+      hurryUpTurns: this.hurryUpTurns || 0,
+      explosiveActive: !!this.explosiveActive,
       gameMode: this.gameMode,
       targetScore: this.targetScore,
       drawRule: this.drawRule,
@@ -1090,7 +1245,15 @@ export class UnoEngine {
       recentDiscardPile: this.discardPile.slice(-6).map((c, i) => {
         let displayAssetKey = c.assetKey;
         if (c.color === 'wild' && c.chosenColor) {
-          displayAssetKey = c.value === 'wild_draw4' ? `wild_draw4_${c.chosenColor}` : `wild_${c.chosenColor}`;
+          if (c.value === 'wild_draw4') {
+            displayAssetKey = `wild_draw4_${c.chosenColor}`;
+          } else if (c.value === 'rabbids_wild_shield') {
+            displayAssetKey = `rabbids_wild_shield_${c.chosenColor}`;
+          } else if (c.value.startsWith('rabbids_')) {
+            displayAssetKey = c.assetKey;
+          } else {
+            displayAssetKey = `wild_${c.chosenColor}`;
+          }
         }
         const hash = c.id ? c.id.split('').reduce((acc, ch) => acc + ch.charCodeAt(0), 0) : i * 17;
         const rot = ((hash % 19) - 9);

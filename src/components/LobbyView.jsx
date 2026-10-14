@@ -16,7 +16,8 @@ import {
   Trophy,
   Layers,
   Scale,
-  Settings2
+  Settings2,
+  Sparkles
 } from 'lucide-react';
 import { soundManager } from '../services/sound';
 
@@ -36,6 +37,8 @@ export function LobbyView({
   allowChallengeWildDraw4 = true,
   targetScore = 500,
   drawRule = 'draw_one',
+  deckTheme = 'classic',
+  onSetDeckTheme,
   onToggleAi,
   onToggleStacking,
   onToggleChallengeRule,
@@ -359,7 +362,63 @@ export function LobbyView({
         <div className="my-5 p-4 sm:p-5 bg-[#05120a] border border-emerald-500/25 rounded-2xl space-y-4 shadow-inner">
           <div className="flex items-center gap-2 text-xs font-extrabold text-amber-300 tracking-wider uppercase">
             <Settings2 className="w-4 h-4" />
-            <span>牌局規則設定 {isHost ? '(房主可即時切換)' : '(由房主設定)'}</span>
+            <span>牌局規則與 DLC 模式設定 {isHost ? '(房主可即時切換)' : '(由房主設定)'}</span>
+          </div>
+
+          {/* Row 0: Deck Theme / DLC Mode Selection */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-3.5 border-b border-emerald-500/15">
+            <div>
+              <span className="text-xs font-bold text-emerald-200 flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                卡牌主題與 DLC 擴充模式
+              </span>
+              <div className="text-[10px] text-emerald-300/70 mt-0.5">
+                {deckTheme === 'rabbids'
+                  ? '🐰 瘋狂兔子 DLC：包含 4 種特殊功能牌 (3秒限時快抽、定時炸彈+4、全員抽牌、兔兔盾牌反彈)'
+                  : '🃏 經典現代版：Ubisoft 原版乾淨卡面與官方標準牌庫'}
+              </div>
+            </div>
+
+            {isHost ? (
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    soundManager.playTick();
+                    if (onSetDeckTheme) onSetDeckTheme('classic');
+                  }}
+                  className={`py-1 px-3 rounded-lg text-xs font-extrabold transition cursor-pointer flex items-center gap-1.5 ${
+                    deckTheme === 'classic'
+                      ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20'
+                      : 'bg-[#081c10] text-emerald-300 hover:bg-emerald-900/60 border border-emerald-500/20'
+                  }`}
+                >
+                  <span>🃏 經典現代</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    soundManager.playTick();
+                    if (onSetDeckTheme) onSetDeckTheme('rabbids');
+                  }}
+                  className={`py-1 px-3 rounded-lg text-xs font-extrabold transition cursor-pointer flex items-center gap-1.5 ${
+                    deckTheme === 'rabbids'
+                      ? 'bg-gradient-to-r from-pink-500 to-amber-500 text-white shadow-lg shadow-pink-500/25 ring-2 ring-pink-300/50'
+                      : 'bg-[#081c10] text-emerald-300 hover:bg-emerald-900/60 border border-emerald-500/20'
+                  }`}
+                >
+                  <span>🐰 瘋狂兔子 DLC</span>
+                </button>
+              </div>
+            ) : (
+              <span className={`text-xs font-extrabold px-2.5 py-1 rounded-lg ${
+                deckTheme === 'rabbids'
+                  ? 'bg-pink-600/30 text-pink-300 border border-pink-500/40'
+                  : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+              }`}>
+                {deckTheme === 'rabbids' ? '🐰 瘋狂兔子 DLC 模式' : '🃏 經典現代模式'}
+              </span>
+            )}
           </div>
 
           {/* Row 1: Mode & Player Count */}
