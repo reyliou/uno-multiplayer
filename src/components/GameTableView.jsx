@@ -167,6 +167,7 @@ export function GameTableView({
     myHand = [],
     validCards = [],
     topCard,
+    recentDiscardPile = [],
     currentColor = 'red',
     direction = 1,
     currentTurn = 0,
@@ -222,6 +223,44 @@ export function GameTableView({
   }, [gameState?.gameStatus]);
 
   const myPlayer = players[myIndex] || { name: '你 (玩家)', cardCount: displayedHand.length };
+
+  // Helper to render fanned opponent card backs based on card count
+  const renderOpponentCards = (count, direction = 'horizontal') => {
+    const cardCount = typeof count === 'number' ? count : 1;
+    const visualCount = Math.min(Math.max(cardCount, 1), 6);
+    if (direction === 'vertical') {
+      return (
+        <div className="flex flex-col items-center -space-y-6 sm:-space-y-7 card-reflection">
+          {Array.from({ length: visualCount }).map((_, idx) => (
+            <div
+              key={idx}
+              className="transition-transform duration-150 drop-shadow-md"
+              style={{
+                transform: `rotate(${(idx - (visualCount - 1) / 2) * 3}deg)`
+              }}
+            >
+              <CardView isBack isSmall />
+            </div>
+          ))}
+        </div>
+      );
+    }
+    return (
+      <div className="flex items-center -space-x-4 sm:-space-x-5 card-reflection">
+        {Array.from({ length: visualCount }).map((_, idx) => (
+          <div
+            key={idx}
+            className="transition-transform duration-150 drop-shadow-md"
+            style={{
+              transform: `rotate(${(idx - (visualCount - 1) / 2) * 4}deg) translateY(${Math.abs(idx - (visualCount - 1) / 2) * 1.5}px)`
+            }}
+          >
+            <CardView isBack isSmall />
+          </div>
+        ))}
+      </div>
+    );
+  };
 
   // Turn-based state for contextual actions
   const [localHasDrawn, setLocalHasDrawn] = useState(false);
@@ -288,6 +327,8 @@ export function GameTableView({
         players.forEach(p => { counts[p.id] = p.cardCount; });
         setDisplayedCounts(counts);
       }
+      inflightCardIdsRef.current.clear();
+      inflightOpponentCountsRef.current = {};
 
       // Smooth fan out of hand cards on game start/deal
       setIsHandCollapsed(true);
@@ -398,6 +439,19 @@ export function GameTableView({
     prevTopCardRef.current = topCard;
 
     // 2. Synchronize drawn card flights and exact landing additions
+    // If opening deal is active, do not trigger single-card flight animations
+    if (isDealing) {
+      if (myHand && myHand.length > 0) {
+        setDisplayedHand(myHand);
+        const counts = {};
+        players.forEach(p => { counts[p.id] = p.cardCount; });
+        setDisplayedCounts(counts);
+      }
+      inflightCardIdsRef.current.clear();
+      inflightOpponentCountsRef.current = {};
+      return;
+    }
+
     // For local player's hand:
     if (myHand.length < displayedHand.length) {
       setDisplayedHand(myHand);
@@ -748,7 +802,7 @@ export function GameTableView({
                   )}
                 </div>
 
-                {/* Hand Display: If 2V2 Teammate, cards face-up! If opponent, card back */}
+                {/* Hand Display: If 2V2 Teammate, cards face-up! If opponent, fanned cards */}
                 <div className="flex items-center justify-center mt-1">
                   {isTeammateTop ? (
                     <div className="flex items-center -space-x-4 sm:-space-x-5">
@@ -763,9 +817,7 @@ export function GameTableView({
                       ))}
                     </div>
                   ) : (
-                    <div className="relative">
-                      <CardView isBack isSmall className="drop-shadow-md" />
-                    </div>
+                    renderOpponentCards(displayedCounts[topPlayer.id] !== undefined ? displayedCounts[topPlayer.id] : topPlayer.cardCount, 'horizontal')
                   )}
                 </div>
 
@@ -842,7 +894,7 @@ export function GameTableView({
                   </div>
 
                   <div className="mt-1">
-                    <CardView isBack isSmall className="drop-shadow-md" />
+                    {renderOpponentCards(displayedCounts[leftPlayer.id] !== undefined ? displayedCounts[leftPlayer.id] : leftPlayer.cardCount, 'vertical')}
                   </div>
 
                   {leftPlayer.unoVulnerable && (
@@ -892,7 +944,7 @@ export function GameTableView({
                         ? '本回合已抽過牌，請打出手牌或點擊過牌'
                         : '點擊抽一張牌'
                     }
-                    className={`relative transition-transform duration-150 ${
+                    className={`relative deck-3d-stack transition-transform duration-150 ${
                       isContinuousDrawing
                         ? 'cursor-wait opacity-80'
                         : (hasDrawnThisTurn && stackedDrawCount === 0)
@@ -901,8 +953,8 @@ export function GameTableView({
                     }`}
                   >
                     {/* Subtle deck stack depth layers */}
-                    <div className="absolute top-1 left-1 w-20 h-30 sm:w-24 sm:h-36 rounded-xl bg-black/40 border border-white/10" />
-                    <div className="absolute top-0.5 left-0.5 w-20 h-30 sm:w-24 sm:h-36 rounded-xl bg-[#0a1c12] border border-white/15" />
+                    <div className="absolute top-1.5 left-1.5 w-full h-full rounded-xl bg-black/40 border border-white/10 pointer-events-none" />
+                    <div className="absolute top-0.5 left-0.5 w-full h-full rounded-xl bg-[#0a1c12] border border-white/15 pointer-events-none" />
                     <CardView isBack />
                   </div>
                   {/* Pile Count Badge (80 張) */}
@@ -915,10 +967,33 @@ export function GameTableView({
                 <div className="flex flex-col items-center gap-2">
                   <div
                     ref={discardPileRef}
-                    className="relative transition-transform duration-300"
-                    style={{ transform: 'rotate(-3deg)' }}
+                    className="relative transition-transform duration-300 w-20 h-30 sm:w-24 sm:h-36 flex items-center justify-center"
                   >
-                    <CardView card={topCard} isTopCard />
+                    {/* Layered Under-cards */}
+                    {recentDiscardPile && recentDiscardPile.length > 1 && recentDiscardPile.slice(0, -1).map((discardedCard, idx) => (
+                      <div
+                        key={discardedCard.id || idx}
+                        className="absolute inset-0 pointer-events-none transition-all duration-300 flex items-center justify-center"
+                        style={{
+                          transform: `translate(${discardedCard.offsetX || 0}px, ${discardedCard.offsetY || 0}px) rotate(${discardedCard.rot || (idx * 5 - 10)}deg)`,
+                          zIndex: idx
+                        }}
+                      >
+                        <CardView card={discardedCard} className="shadow-md filter brightness-90" />
+                      </div>
+                    ))}
+
+                    {/* Top Active Card */}
+                    <div
+                      className="relative z-10 transition-transform duration-200"
+                      style={{
+                        transform: recentDiscardPile?.length
+                          ? `translate(${recentDiscardPile[recentDiscardPile.length - 1].offsetX || 0}px, ${recentDiscardPile[recentDiscardPile.length - 1].offsetY || 0}px) rotate(${recentDiscardPile[recentDiscardPile.length - 1].rot || -3}deg)`
+                          : 'rotate(-3deg)'
+                      }}
+                    >
+                      <CardView card={topCard} isTopCard />
+                    </div>
                   </div>
                   {/* Active Color Badge (🔴 紅色) */}
                   <div className="flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-[#0a1c12]/95 border border-white/20 shadow-lg text-xs font-bold text-white">
@@ -1014,7 +1089,7 @@ export function GameTableView({
                   </div>
 
                   <div className="mt-1">
-                    <CardView isBack isSmall className="drop-shadow-md" />
+                    {renderOpponentCards(displayedCounts[rightPlayer.id] !== undefined ? displayedCounts[rightPlayer.id] : rightPlayer.cardCount, 'vertical')}
                   </div>
 
                   {rightPlayer.unoVulnerable && (

@@ -504,7 +504,7 @@ export class P2PNetwork {
     this.lobbyPlayers[idxA] = {
       ...pB,
       id: idxA,
-      isHost: idxA === 0,
+      isHost: !!pB.isHost,
       teamId: this.gameMode === '2v2' ? (idxA % 2 === 0 ? 'team_a' : 'team_b') : null,
       teamName: this.gameMode === '2v2' ? (idxA % 2 === 0 ? '金隊 (隊伍 A)' : '藍隊 (隊伍 B)') : null,
       partnerIdx: this.gameMode === '2v2' ? (idxA + 2) % 4 : null
@@ -513,7 +513,7 @@ export class P2PNetwork {
     this.lobbyPlayers[idxB] = {
       ...pA,
       id: idxB,
-      isHost: idxB === 0,
+      isHost: !!pA.isHost,
       teamId: this.gameMode === '2v2' ? (idxB % 2 === 0 ? 'team_a' : 'team_b') : null,
       teamName: this.gameMode === '2v2' ? (idxB % 2 === 0 ? '金隊 (隊伍 A)' : '藍隊 (隊伍 B)') : null,
       partnerIdx: this.gameMode === '2v2' ? (idxB + 2) % 4 : null
@@ -532,7 +532,7 @@ export class P2PNetwork {
 
   // Toggle Slot between Computer Bot (AI) and Open for Human
   toggleSlotAi(slotIndex) {
-    if (!this.isHost || slotIndex === 0 || this.gameStarted) return;
+    if (!this.isHost || slotIndex === this.getHostIndex() || this.gameStarted) return;
     const p = this.lobbyPlayers[slotIndex];
     if (!p) return;
 

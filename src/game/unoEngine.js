@@ -112,24 +112,32 @@ export class UnoEngine {
     this.colorChoosingPlayerIndex = null;
     this.pendingWildCard = null;
 
-    // Apply initial card action
-    this.applyInitialCardAction(firstCard);
+    // Record initial card action to be applied after dealing animation finishes
+    this.initialCard = firstCard;
   }
 
   finishDealing() {
     this.isDealing = false;
     this.turnStartTime = Date.now();
-    this.addLog(`🎴 發牌完畢！輪到【${this.players[this.currentTurn]?.name || '第 1 位玩家'}】行動。`);
+    this.addLog(`🎴 發牌完畢！`);
+    if (this.initialCard) {
+      this.applyInitialCardAction(this.initialCard);
+      this.initialCard = null;
+    }
+    this.addLog(`輪到【${this.players[this.currentTurn]?.name || '第 1 位玩家'}】行動。`);
     return { success: true };
   }
 
   applyInitialCardAction(card) {
+    const targetPlayer = this.players[this.currentTurn];
+    const targetName = targetPlayer ? targetPlayer.name : '第 1 位玩家';
+
     if (card.value === 'skip') {
-      this.addLog(`首張牌是【禁止牌】，跳過 ${this.players[0].name}！`);
+      this.addLog(`首張牌是【禁止牌】，跳過 ${targetName}！`);
       this.currentTurn = this.getNextTurnIndex();
     } else if (card.value === 'reverse') {
       if (this.playerCount === 2) {
-        this.addLog(`首張牌是【反轉牌】(兩人局視為跳過)，跳過 ${this.players[0].name}！`);
+        this.addLog(`首張牌是【反轉牌】(兩人局視為跳過)，跳過 ${targetName}！`);
         this.currentTurn = this.getNextTurnIndex();
       } else {
         this.direction *= -1;
@@ -139,14 +147,14 @@ export class UnoEngine {
       if (this.allowStacking) {
         this.stackedDrawCount = 2;
         this.stackedDrawType = 'draw2';
-        this.addLog(`首張牌是【+2 罰抽牌】，目前累積 +2 張！輪到 ${this.players[0].name}，可出 +2 疊牌或抽牌！`);
+        this.addLog(`首張牌是【+2 罰抽牌】，目前累積 +2 張！輪到 ${targetName}，可出 +2 疊牌或抽牌！`);
       } else {
-        this.addLog(`首張牌是【+2 罰抽牌】，${this.players[0].name} 抽 2 張牌且跳過出牌！`);
-        this.drawCardsForPlayer(0, 2);
+        this.addLog(`首張牌是【+2 罰抽牌】，${targetName} 抽 2 張牌且跳過出牌！`);
+        this.drawCardsForPlayer(this.currentTurn, 2);
         this.currentTurn = this.getNextTurnIndex();
       }
     } else if (card.value === 'wild') {
-      this.addLog(`首張牌是【萬用牌】，起始玩家 ${this.players[0].name} 可自選任意顏色！`);
+      this.addLog(`首張牌是【萬用牌】，起始玩家 ${targetName} 可自選任意顏色！`);
     }
   }
 
@@ -1114,6 +1122,23 @@ export class UnoEngine {
         ...top,
         displayAssetKey: topDisplayKey
       } : null,
+      recentDiscardPile: this.discardPile.slice(-6).map((c, i, arr) => {
+        let displayAssetKey = c.assetKey;
+        if (c.color === 'wild' && c.chosenColor) {
+          displayAssetKey = `${c.chosenColor}_${c.value}`;
+        }
+        const hash = c.id ? c.id.split('').reduce((acc, ch) => acc + ch.charCodeAt(0), 0) : i * 17;
+        const rot = ((hash % 19) - 9); // subtle rotation: -9 to +9 deg
+        const offsetX = ((hash % 9) - 4);
+        const offsetY = (((hash >> 2) % 9) - 4);
+        return {
+          ...c,
+          displayAssetKey,
+          rot,
+          offsetX,
+          offsetY
+        };
+      }),
       currentColor: this.currentColor,
       currentValue: this.currentValue,
       direction: this.direction,
