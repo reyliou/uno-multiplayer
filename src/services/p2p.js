@@ -1108,11 +1108,24 @@ export class P2PNetwork {
                 const playRes = this.engine.playCard(aiIndex, card.id, chosenColor);
                 if (playRes.success) {
                   if (card.color === 'wild') soundManager.playWild();
+                  else if (['skip', 'reverse', 'draw2', 'wild_draw4'].includes(playRes.card.value)) soundManager.playAction();
                   else soundManager.playCard();
-                  this.broadcastSoundEvent(card.color === 'wild' ? 'wild' : 'card');
+                  this.broadcastSoundEvent(card.color === 'wild' ? 'wild' : (['skip', 'reverse', 'draw2', 'wild_draw4'].includes(playRes.card.value) ? 'action' : 'card'));
                   this.broadcastGameState();
                   if (!playRes.gameOver && playRes.isVanishing) {
                     this.handleSpecialVanishAndEffects(aiIndex, playRes.card);
+                  } else if (!playRes.gameOver && ['skip', 'reverse', 'draw2', 'wild_draw4'].includes(playRes.card.value)) {
+                    this.isContinuousDrawing = true;
+                    this.engine.isContinuousDrawing = true;
+                    this.broadcastGameState();
+                    setTimeout(() => {
+                      this.finishDrawingCleanup();
+                      if (this.engine) {
+                        this.engine.turnStartTime = Date.now();
+                        this.broadcastGameState();
+                      }
+                      this.checkAiTurn();
+                    }, 650);
                   } else {
                     this.checkAiTurn();
                   }
@@ -1202,8 +1215,8 @@ export class P2PNetwork {
       const totalWait = (extraBomb + 1) * 240 + 650;
       this.continuousDrawTimer = setTimeout(() => {
         if (!this.engine || this.engine.gameStatus === 'game_over') return;
-        this.engine.finishAutoPass(playerIndex, stepRes.card);
         this.finishDrawingCleanup();
+        this.engine.finishAutoPass(playerIndex, stepRes.card);
         this.broadcastGameState();
         this.checkAiTurn();
         if (onComplete) onComplete({ success: true, canPlay: false, autoPassed: true });
@@ -1236,12 +1249,18 @@ export class P2PNetwork {
       this.broadcastGameState();
 
       if (res.canPlay || drawnCards.length >= maxLimit || (this.engine.drawPile.length === 0 && this.engine.discardPile.length <= 1)) {
-        setTimeout(() => {
+        this.continuousDrawTimer = setTimeout(() => {
           if (!this.engine) return;
-          const finalRes = this.engine.finishContinuousDraw(playerIndex, drawnCards, res.canPlay);
+          // CRITICAL: Unlock isContinuousDrawing BEFORE finishContinuousDraw & broadcastGameState
+          // so getValidCardsForPlayer returns the playable card and the player can immediately play it!
           this.finishDrawingCleanup();
+          const finalRes = this.engine.finishContinuousDraw(playerIndex, drawnCards, res.canPlay);
+          this.resetTurnTimer();
           this.broadcastGameState();
 
+          if (!res.canPlay) {
+            this.checkAiTurn();
+          }
           if (onComplete) onComplete(finalRes);
         }, 480);
       } else {
@@ -1307,8 +1326,8 @@ export class P2PNetwork {
       if (drawn >= countToDraw) {
         this.continuousDrawTimer = setTimeout(() => {
           if (!this.engine) return;
-          this.engine.finishPenaltyDraw(playerIndex, countToDraw);
           this.finishDrawingCleanup();
+          this.engine.finishPenaltyDraw(playerIndex, countToDraw);
           soundManager.playPenalty();
           this.broadcastSoundEvent('penalty');
           this.broadcastGameState();

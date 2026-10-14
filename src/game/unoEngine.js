@@ -371,10 +371,10 @@ export class UnoEngine {
     return this.discardPile[this.discardPile.length - 1];
   }
 
+  // Pure card legality check (MUST NOT check isContinuousDrawing here so draw_until_playable can detect playable drawn cards!)
   canPlayCard(card) {
     if (!card) return false;
     if (this.isChoosingColor) return false;
-    if (this.isContinuousDrawing) return false;
 
     if (this.stackedDrawCount > 0) {
       // In Rabbids mode, rabbids_wild_shield can ALWAYS be played to defend and deflect incoming stacked draw!
@@ -390,6 +390,7 @@ export class UnoEngine {
   }
 
   getValidCardsForPlayer(playerIndex) {
+    if (this.isContinuousDrawing || this.isDealing) return [];
     const p = this.players[playerIndex];
     if (!p) return [];
     return p.hand.filter(c => this.canPlayCard(c));
@@ -707,7 +708,7 @@ export class UnoEngine {
 
     this.hasDrawnThisTurn = false;
 
-    // CRITICAL FIX: If this is a vanishing Rabbids event card (Hurry Up, Explosive, Comin' Through, or Deflecting Shield),
+    // If this is a vanishing Rabbids event card (Hurry Up, Explosive, Comin' Through, or Deflecting Shield),
     // DO NOT advance currentTurn yet! Hold the turn until the effect waves & fade-out animation finish!
     if (isVanishingRabbidsCard) {
       this.pendingAdvanceStep = nextStep;
@@ -1001,6 +1002,8 @@ export class UnoEngine {
     }
 
     this.hasDrawnThisTurn = true;
+    this.turnStartTime = Date.now();
+    this.turnDuration = this.getActiveTurnDuration();
     this.lastAction = {
       type: 'draw_finished',
       playerId: playerIndex,
