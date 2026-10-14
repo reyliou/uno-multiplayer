@@ -1,13 +1,9 @@
-// HomeView.jsx - Commercial Casino Tabletop Entry & Room Creator / Joiner
+// HomeView.jsx - Streamlined Casino Tabletop Entry (Nickname + Create / Join Room)
 import React, { useState, useEffect } from 'react';
 import {
   PlusCircle,
   LogIn,
   Users,
-  Flame,
-  ShieldCheck,
-  Swords,
-  UserCheck,
   Sparkles,
   ChevronRight
 } from 'lucide-react';
@@ -17,8 +13,6 @@ import { soundManager } from '../services/sound';
 export function HomeView({ onCreateRoom, onJoinRoom }) {
   const [playerName, setPlayerName] = useState(() => localStorage.getItem('uno_player_name') || '玩家');
   const [roomCodeInput, setRoomCodeInput] = useState('');
-  const [allowStacking, setAllowStacking] = useState(true);
-  const [gameMode, setGameMode] = useState('ffa'); // 'ffa' | '2v2'
   const [tab, setTab] = useState('create'); // 'create' | 'join'
 
   useEffect(() => {
@@ -40,16 +34,12 @@ export function HomeView({ onCreateRoom, onJoinRoom }) {
     setTab(newTab);
   };
 
-  const handleModeSelect = (mode) => {
-    soundManager.playTick();
-    setGameMode(mode);
-  };
-
   const handleCreate = (e) => {
     e.preventDefault();
     soundManager.playShuffle();
     const code = P2PNetwork.generateRoomCode();
-    onCreateRoom(code, playerName.trim() || '房主', allowStacking, gameMode);
+    // Default to stacking = true, mode = 'ffa'; all rules are configured inside LobbyView
+    onCreateRoom(code, playerName.trim() || '房主', true, 'ffa');
   };
 
   const handleJoin = (e) => {
@@ -70,7 +60,7 @@ export function HomeView({ onCreateRoom, onJoinRoom }) {
         }}
       />
 
-      {/* Decorative Background Floating Cards (Uses existing /cards_modern assets) */}
+      {/* Decorative Background Floating Cards */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden opacity-20 sm:opacity-30">
         <img
           src="/cards_modern/red_skip.png"
@@ -95,13 +85,12 @@ export function HomeView({ onCreateRoom, onJoinRoom }) {
       </div>
 
       {/* Main Casino Wood & Gold Framed Panel */}
-      <div className="relative z-10 w-full max-w-xl rounded-3xl bg-gradient-to-b from-[#133822]/95 via-[#0b2315]/98 to-[#06140c] border-2 border-amber-500/40 shadow-[0_28px_70px_rgba(0,0,0,0.9),0_0_0_6px_rgba(38,23,12,0.95)] p-6 sm:p-8 backdrop-blur-xl">
+      <div className="relative z-10 w-full max-w-md rounded-3xl bg-gradient-to-b from-[#133822]/95 via-[#0b2315]/98 to-[#06140c] border-2 border-amber-500/40 shadow-[0_28px_70px_rgba(0,0,0,0.9),0_0_0_6px_rgba(38,23,12,0.95)] p-6 sm:p-8 backdrop-blur-xl">
         {/* Subtle Inner Gold Hairline */}
         <div className="pointer-events-none absolute inset-2.5 rounded-2xl border border-amber-400/15" />
 
         {/* Hero Brand Showcase with Fanned Actual Cards */}
         <div className="relative flex flex-col items-center mb-6 pt-2">
-          {/* Fanned 3-Card Showcase Behind Emblem */}
           <div className="relative h-24 sm:h-28 w-48 flex items-center justify-center mb-1">
             <img
               src="/cards_modern/red_draw2.png"
@@ -131,7 +120,7 @@ export function HomeView({ onCreateRoom, onJoinRoom }) {
             線上多人派對牌桌
           </h1>
           <p className="text-xs text-emerald-300/70 mt-0.5">
-            支援單人 AI 練習、好友房號連線與 2V2 雙人組隊共視手牌
+            支援單人 AI 練習、好友房號連線與 2V2 組隊共視手牌
           </p>
         </div>
 
@@ -145,16 +134,14 @@ export function HomeView({ onCreateRoom, onJoinRoom }) {
               最多 12 字元
             </span>
           </div>
-          <div className="relative">
-            <input
-              type="text"
-              value={playerName}
-              onChange={handleNameChange}
-              maxLength={12}
-              placeholder="輸入你的牌桌名稱..."
-              className="w-full px-4 py-3 bg-[#05120a] border border-emerald-500/35 rounded-xl text-white font-bold text-sm placeholder-emerald-700 focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-400/25 transition shadow-inner"
-            />
-          </div>
+          <input
+            type="text"
+            value={playerName}
+            onChange={handleNameChange}
+            maxLength={12}
+            placeholder="輸入你的牌桌名稱..."
+            className="w-full px-4 py-3 bg-[#05120a] border border-emerald-500/35 rounded-xl text-white font-bold text-sm placeholder-emerald-700 focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-400/25 transition shadow-inner"
+          />
         </div>
 
         {/* Create / Join Segmented Switcher */}
@@ -185,114 +172,24 @@ export function HomeView({ onCreateRoom, onJoinRoom }) {
           </button>
         </div>
 
-        {/* TAB 1: CREATE ROOM */}
+        {/* TAB 1: CREATE ROOM (Clean One-Click Entry to Lobby) */}
         {tab === 'create' && (
           <form onSubmit={handleCreate} className="space-y-4">
-            {/* Game Mode Cards */}
-            <div>
-              <label className="block text-xs font-bold text-amber-300/90 mb-2 tracking-wider">
-                選擇對戰模式
-              </label>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick={() => handleModeSelect('ffa')}
-                  className={`relative p-3.5 rounded-2xl border text-left transition flex flex-col justify-between cursor-pointer overflow-hidden ${
-                    gameMode === 'ffa'
-                      ? 'bg-gradient-to-br from-amber-500/20 to-emerald-950/90 border-amber-400 text-white shadow-[0_0_20px_rgba(245,158,11,0.2)]'
-                      : 'bg-[#06150c] border-emerald-500/20 text-emerald-300/70 hover:border-emerald-500/40'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="flex items-center gap-1.5 font-extrabold text-xs sm:text-sm text-white">
-                      <Swords className="w-4 h-4 text-amber-400" />
-                      個人混戰
-                    </span>
-                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/10 text-amber-300 font-bold">
-                      2-4P
-                    </span>
-                  </div>
-                  <p className="text-[11px] leading-relaxed text-emerald-200/75">
-                    各自為政，手牌全蓋牌，最先出清手牌者獨得積分。
-                  </p>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleModeSelect('2v2')}
-                  className={`relative p-3.5 rounded-2xl border text-left transition flex flex-col justify-between cursor-pointer overflow-hidden ${
-                    gameMode === '2v2'
-                      ? 'bg-gradient-to-br from-amber-500/20 to-emerald-950/90 border-amber-400 text-white shadow-[0_0_20px_rgba(245,158,11,0.2)]'
-                      : 'bg-[#06150c] border-emerald-500/20 text-emerald-300/70 hover:border-emerald-500/40'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="flex items-center gap-1.5 font-extrabold text-xs sm:text-sm text-white">
-                      <UserCheck className="w-4 h-4 text-amber-400" />
-                      2V2 雙人組隊
-                    </span>
-                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-400/20 text-amber-300 font-bold">
-                      TEAM
-                    </span>
-                  </div>
-                  <p className="text-[11px] leading-relaxed text-emerald-200/75">
-                    對座互為隊友，牌桌上直接明牌共享隊友手牌、助攻獲勝。
-                  </p>
-                </button>
+            <div className="p-4 rounded-2xl bg-[#06150c] border border-emerald-500/25 text-xs text-emerald-200/85 space-y-1.5 leading-relaxed">
+              <div className="font-extrabold text-amber-300 text-sm">
+                建立專屬牌桌房間
               </div>
+              <p className="text-emerald-300/70">
+                進入房間大廳後，可自由設定 <span className="text-white font-bold">個人混戰 / 2V2 組隊</span>、<span className="text-white font-bold">目標積分</span>、<span className="text-white font-bold">+2/+4 疊牌</span> 與 <span className="text-white font-bold">AI 電腦或真人座位</span>。
+              </p>
             </div>
 
-            {/* Stacking Rule Toggle Row */}
-            <div
-              onClick={() => {
-                soundManager.playTick();
-                setAllowStacking(!allowStacking);
-              }}
-              className="bg-[#06150c] hover:bg-[#081c10] border border-emerald-500/25 rounded-2xl p-3.5 flex items-center justify-between cursor-pointer transition"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-amber-500/15 border border-amber-400/30 flex items-center justify-center shrink-0">
-                  <Flame className="w-5 h-5 text-amber-400" />
-                </div>
-                <div>
-                  <div className="text-xs sm:text-sm font-extrabold text-white">
-                    允許累加上牌 (+2 / +4 疊牌)
-                  </div>
-                  <div className="text-[11px] text-emerald-300/65">
-                    遭上家出 +2 或 +4 時，可打出同類牌將罰抽張數轉嫁給下家
-                  </div>
-                </div>
-              </div>
-              <button
-                type="button"
-                aria-label="切換疊牌規則"
-                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
-                  allowStacking ? 'bg-amber-500' : 'bg-slate-700'
-                }`}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
-                    allowStacking ? 'translate-x-6' : 'translate-x-1'
-                  }`}
-                />
-              </button>
-            </div>
-
-            {/* Info Notice */}
-            <div className="px-3.5 py-2.5 bg-emerald-950/40 border border-emerald-500/20 rounded-xl text-[11px] text-emerald-200/80 flex items-center gap-2.5">
-              <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>
-                進入大廳後仍可隨時調整積分制、連續抽牌、質疑 +4 以及更換電腦或真人座位。
-              </span>
-            </div>
-
-            {/* Submit CTA */}
             <button
               type="submit"
               className="w-full py-3.5 px-5 bg-gradient-to-b from-amber-400 via-amber-500 to-amber-600 hover:from-amber-300 hover:to-amber-500 text-black font-black text-sm sm:text-base rounded-2xl shadow-[0_8px_25px_rgba(245,158,11,0.35)] active:translate-y-0.5 transition duration-150 flex items-center justify-center gap-2 cursor-pointer border border-amber-200/60"
             >
               <Users className="w-5 h-5" />
-              <span>開設房間並前往牌桌大廳</span>
+              <span>開設房間並前往大廳</span>
               <ChevronRight className="w-4 h-4" />
             </button>
           </form>
