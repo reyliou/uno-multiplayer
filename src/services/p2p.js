@@ -380,7 +380,16 @@ export class P2PNetwork {
 
           this.broadcastSoundEvent(res.card.color === 'wild' ? 'wild' : (['skip', 'reverse', 'draw2', 'wild_draw4'].includes(res.card.value) ? 'action' : 'card'));
           this.broadcastGameState();
-          this.checkAiTurn();
+
+          if (!res.gameOver && res.card.value === 'rabbids_comin_through') {
+            this.isContinuousDrawing = true;
+            setTimeout(() => {
+              this.isContinuousDrawing = false;
+              this.checkAiTurn();
+            }, 600);
+          } else {
+            this.checkAiTurn();
+          }
         } else {
           conn.send({ type: 'ACTION_FAILED', reason: res.reason });
         }
@@ -397,7 +406,16 @@ export class P2PNetwork {
           soundManager.playWild();
           this.broadcastSoundEvent('wild');
           this.broadcastGameState();
-          this.checkAiTurn();
+
+          if (res.card && res.card.value === 'rabbids_comin_through') {
+            this.isContinuousDrawing = true;
+            setTimeout(() => {
+              this.isContinuousDrawing = false;
+              this.checkAiTurn();
+            }, 600);
+          } else {
+            this.checkAiTurn();
+          }
         }
         break;
       }
@@ -1015,7 +1033,16 @@ export class P2PNetwork {
 
         this.broadcastSoundEvent(res.card.color === 'wild' ? 'wild' : (['skip', 'reverse', 'draw2', 'wild_draw4'].includes(res.card.value) ? 'action' : 'card'));
         this.broadcastGameState();
-        this.checkAiTurn();
+
+        if (!res.gameOver && res.card.value === 'rabbids_comin_through') {
+          this.isContinuousDrawing = true;
+          setTimeout(() => {
+            this.isContinuousDrawing = false;
+            this.checkAiTurn();
+          }, 600);
+        } else {
+          this.checkAiTurn();
+        }
       }
     } else if (move.action === 'draw') {
       if (this.engine.stackedDrawCount > 0) {
@@ -1239,7 +1266,16 @@ export class P2PNetwork {
 
       this.broadcastSoundEvent(res.card.color === 'wild' ? 'wild' : (['skip', 'reverse', 'draw2', 'wild_draw4'].includes(res.card.value) ? 'action' : 'card'));
       this.broadcastGameState();
-      this.checkAiTurn();
+
+      if (!res.gameOver && res.card.value === 'rabbids_comin_through') {
+        this.isContinuousDrawing = true;
+        setTimeout(() => {
+          this.isContinuousDrawing = false;
+          this.checkAiTurn();
+        }, 600);
+      } else {
+        this.checkAiTurn();
+      }
     }
     return res;
   }
@@ -1252,7 +1288,16 @@ export class P2PNetwork {
       soundManager.playWild();
       this.broadcastSoundEvent('wild');
       this.broadcastGameState();
-      this.checkAiTurn();
+
+      if (res.card && res.card.value === 'rabbids_comin_through') {
+        this.isContinuousDrawing = true;
+        setTimeout(() => {
+          this.isContinuousDrawing = false;
+          this.checkAiTurn();
+        }, 600);
+      } else {
+        this.checkAiTurn();
+      }
     }
     return res;
   }

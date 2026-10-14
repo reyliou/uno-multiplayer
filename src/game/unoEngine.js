@@ -373,6 +373,32 @@ export class UnoEngine {
     return best;
   }
 
+  // Helper to resolve current active turn duration (3s during Hurry Up, 15s normal)
+  getActiveTurnDuration() {
+    return this.hurryUpTurns > 0 ? 3 : 15;
+  }
+
+  // Consume 1 turn of Hurry Up and return the duration for the newly started turn
+  consumeTurnDuration() {
+    if (this.hurryUpTurns > 0) {
+      this.hurryUpTurns--;
+      return 3;
+    }
+    return 15;
+  }
+
+  // Trigger Explosive Bomb if active when a player is forced to draw
+  checkAndTriggerExplosive(playerIndex) {
+    if (!this.explosiveActive) return 0;
+    this.explosiveActive = false;
+    const player = this.players[playerIndex];
+    this.drawCardsForPlayer(playerIndex, 4);
+    if (player) {
+      this.addLog(`💥 轟！！！瘋狂定時炸彈在【${player.name}】抽牌時引爆！額外炸飛多抽 +4 張牌！`);
+    }
+    return 4;
+  }
+
   playCard(playerIndex, cardId, chosenColor = null) {
     if (this.isDealing) {
       return { success: false, reason: '開局發牌中，尚未能出牌！' };
@@ -631,12 +657,7 @@ export class UnoEngine {
     this.hasDrawnThisTurn = false;
     this.currentTurn = this.getNextTurnIndex(nextStep);
     this.turnStartTime = Date.now();
-    if (this.hurryUpTurns > 0) {
-      this.hurryUpTurns--;
-      this.turnDuration = this.hurryUpTurns > 0 ? 3 : 15;
-    } else {
-      this.turnDuration = 15;
-    }
+    this.turnDuration = this.consumeTurnDuration();
 
     return {
       success: true,
@@ -663,28 +684,8 @@ export class UnoEngine {
     this.currentColor = finalColor;
     this.currentValue = card.value;
     card.chosenColor = finalColor;
-    if (card.value === 'rabbids_hurry_up') {
-      this.hurryUpTurns = this.playerCount;
-      effectMsg += ` ⚡ 瘋狂快抽觸發！接下來 ${this.playerCount} 回合每位玩家只有 3 秒思考時間！`;
-    } else if (card.value === 'rabbids_explosive') {
-      this.explosiveActive = true;
-      effectMsg += ` 💣 炸彈已安裝！下一位被迫抽牌或承受罰抽的玩家，將額外多抽 +4 張炸彈牌！`;
-    } else if (card.value === 'rabbids_comin_through') {
-      this.players.forEach((p, idx) => {
-        if (idx !== playerIndex) {
-          this.drawCardsForPlayer(idx, 1);
-        }
-      });
-      effectMsg += ` 🌪️ 瘋狂借過！所有其他玩家被迫各抽 1 張牌！`;
-    } else if (card.value === 'rabbids_wild_shield') {
-      if (this.stackedDrawCount > 0) {
-        const nextVictim = this.players[this.getNextTurnIndex(1)];
-        effectMsg += ` 🛡️ 兔兔盾牌反彈！將累積的【+${this.stackedDrawCount} 張】罰抽全數轉移給 ${nextVictim.name}！`;
-        nextStep = 1;
-      } else {
-        effectMsg += ` 🛡️ 兔兔盾牌防護！`;
-      }
-    } else if (card.value === 'wild_draw4') {
+
+    if (card.value === 'wild_draw4') {
       card.displayAssetKey = `wild_draw4_${finalColor}`;
     } else if (card.value === 'rabbids_wild_shield') {
       card.displayAssetKey = `rabbids_wild_shield_${finalColor}`;
@@ -700,6 +701,30 @@ export class UnoEngine {
 
     let effectMsg = `指定顏色為【${this.colorNames[finalColor]}】！`;
     let nextStep = 1;
+
+    // Apply Rabbids DLC Special Effects after human player finishes choosing color
+    if (card.value === 'rabbids_hurry_up') {
+      this.hurryUpTurns = this.playerCount;
+      effectMsg += ` ⚡ 瘋狂快抽觸發！接下來 ${this.playerCount} 個回合每位玩家只有 3 秒思考時間！`;
+    } else if (card.value === 'rabbids_explosive') {
+      this.explosiveActive = true;
+      effectMsg += ` 💣 炸彈已安裝在牌堆上！下一位抽牌或承受罰抽的玩家將引爆炸彈 (額外 +4 張)！`;
+    } else if (card.value === 'rabbids_comin_through') {
+      this.players.forEach((p, idx) => {
+        if (idx !== playerIndex) {
+          this.drawCardsForPlayer(idx, 1);
+        }
+      });
+      effectMsg += ` 🌪️ 瘋狂借過！牌桌上所有其他玩家被迫各抽 1 張牌！`;
+    } else if (card.value === 'rabbids_wild_shield') {
+      if (this.stackedDrawCount > 0) {
+        const nextVictim = this.players[this.getNextTurnIndex(1)];
+        effectMsg += ` 🛡️ 兔兔盾牌反彈！將累積的【+${this.stackedDrawCount} 張】罰抽全數轉嫁給 ${nextVictim.name}！`;
+        nextStep = 1;
+      } else {
+        effectMsg += ` 🛡️ 兔兔盾牌安全防護！`;
+      }
+    }
 
     if (card.value === 'wild_draw4') {
       if (this.pendingWildDraw4Info) {
@@ -740,12 +765,7 @@ export class UnoEngine {
     this.hasDrawnThisTurn = false;
     this.currentTurn = this.getNextTurnIndex(nextStep);
     this.turnStartTime = Date.now();
-    if (this.hurryUpTurns > 0) {
-      this.hurryUpTurns--;
-      this.turnDuration = this.hurryUpTurns > 0 ? 3 : 15;
-    } else {
-      this.turnDuration = 15;
-    }
+    this.turnDuration = this.consumeTurnDuration();
 
     return {
       success: true,
@@ -769,11 +789,7 @@ export class UnoEngine {
       return { success: false, reason: '本回合已經主動抽過牌了，無法重複抽牌！' };
     }
 
-    if (this.explosiveActive) {
-      this.explosiveActive = false;
-      this.drawCardsForPlayer(playerIndex, 4);
-      this.addLog(`💥 轟！！！定時炸彈在【${this.players[playerIndex].name}】抽牌時引爆！額外多抽了 4 張牌！`);
-    }
+    const extraBombCards = this.checkAndTriggerExplosive(playerIndex);
 
     const card = this.drawCardRaw();
     this.players[playerIndex].hand.push(card);
@@ -794,11 +810,13 @@ export class UnoEngine {
         playerName: this.players[playerIndex].name,
         card: { ...card },
         canPlay: false,
+        extraBombCards,
         timestamp: Date.now()
       };
       return {
         success: true,
         card,
+        extraBombCards,
         drawnCards: [card],
         wasPenalty: false,
         canPlay: false,
@@ -808,17 +826,20 @@ export class UnoEngine {
 
     this.hasDrawnThisTurn = true;
     this.turnStartTime = Date.now();
+    this.turnDuration = this.getActiveTurnDuration();
     this.lastAction = {
       type: 'draw_step',
       playerId: playerIndex,
       playerName: this.players[playerIndex].name,
       card: { ...card },
       canPlay: true,
+      extraBombCards,
       timestamp: Date.now()
     };
     return {
       success: true,
       card,
+      extraBombCards,
       drawnCards: [card],
       wasPenalty: false,
       canPlay: true,
@@ -830,12 +851,7 @@ export class UnoEngine {
     this.hasDrawnThisTurn = false;
     this.currentTurn = this.getNextTurnIndex(step);
     this.turnStartTime = Date.now();
-    if (this.hurryUpTurns > 0) {
-      this.hurryUpTurns--;
-      this.turnDuration = this.hurryUpTurns > 0 ? 3 : 15;
-    } else {
-      this.turnDuration = 15;
-    }
+    this.turnDuration = this.consumeTurnDuration();
     return this.currentTurn;
   }
 
@@ -857,12 +873,6 @@ export class UnoEngine {
   finishPenaltyDraw(playerIndex, count) {
     const player = this.players[playerIndex];
     if (!player) return;
-    if (this.explosiveActive) {
-      this.explosiveActive = false;
-      this.drawCardsForPlayer(playerIndex, 4);
-      count += 4;
-      this.addLog(`💥 轟！！！定時炸彈在【${player.name}】罰抽時引爆！罰抽額外增加 +4 張牌！`);
-    }
     this.stackedDrawCount = 0;
     this.stackedDrawType = null;
     this.lastWildDraw4Info = null;
@@ -887,6 +897,8 @@ export class UnoEngine {
     }
     const player = this.players[playerIndex];
     if (!player) return { success: false, reason: '玩家不存在' };
+
+    const extraBombCards = this.checkAndTriggerExplosive(playerIndex);
 
     const card = this.drawCardRaw();
     player.hand.push(card);

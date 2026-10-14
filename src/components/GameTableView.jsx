@@ -25,7 +25,11 @@ const valueOrder = {
   '0': 0, '1': 1, '2': 2, '3': 3, '4': 4,
   '5': 5, '6': 6, '7': 7, '8': 8, '9': 9,
   'draw2': 10, 'skip': 11, 'reverse': 12,
-  'wild': 13, 'wild_draw4': 14
+  'wild': 13, 'wild_draw4': 14,
+  'rabbids_wild_shield': 15,
+  'rabbids_hurry_up': 16,
+  'rabbids_comin_through': 17,
+  'rabbids_explosive': 18
 };
 
 function sortHandCards(cards) {
@@ -182,7 +186,10 @@ export function GameTableView({
     isChoosingColor = false,
     colorChoosingPlayerIndex = null,
     canChallengeWildDraw4 = false,
-    lastWildDraw4PlayerName = null
+    lastWildDraw4PlayerName = null,
+    deckTheme = 'classic',
+    hurryUpTurns = 0,
+    explosiveActive = false
   } = gameState || {};
 
   const is2v2 = gameMode === '2v2';
@@ -215,6 +222,12 @@ export function GameTableView({
   }, [gameState?.gameStatus]);
 
   const myPlayer = players[myIndex] || { name: '你 (玩家)', cardCount: displayedHand.length };
+
+  // Keep flying card animation service synced with current deck theme ('classic' | 'rabbids')
+  useEffect(() => {
+    cardAnimationService.setDeckTheme(deckTheme);
+  }, [deckTheme]);
+
 
   // Render standing opponent cards:
   // - Enlarged card dimensions (!w-[72px] !h-[108px] sm:!w-[84px] sm:!h-[126px])
@@ -1073,8 +1086,13 @@ export function GameTableView({
             <div className="flex flex-col items-center gap-2.5">
               <div
                 style={{ transform: 'perspective(600px) rotateX(22deg) rotateZ(-4deg)' }}
-                className="transition-transform duration-150 hover:scale-105"
+                className="relative transition-transform duration-150 hover:scale-105"
               >
+                {explosiveActive && (
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-20 px-2.5 py-0.5 rounded-full bg-red-600 text-[10px] font-black text-white border border-red-300 shadow-[0_0_12px_rgba(239,68,68,0.9)] animate-bounce flex items-center gap-1 whitespace-nowrap">
+                    <span>💣 +4 炸彈</span>
+                  </div>
+                )}
                 <div
                   ref={drawPileRef}
                   onClick={isContinuousDrawing ? undefined : handleDrawWithAnimation}
@@ -1086,6 +1104,8 @@ export function GameTableView({
                       : '點擊抽一張牌'
                   }
                   className={`relative deck-3d-stack ${
+                    explosiveActive ? 'ring-4 ring-red-500 shadow-[0_0_25px_rgba(239,68,68,0.85)] rounded-xl' : ''
+                  } ${
                     isContinuousDrawing
                       ? 'cursor-wait opacity-80'
                       : (hasDrawnThisTurn && stackedDrawCount === 0)
@@ -1093,7 +1113,7 @@ export function GameTableView({
                       : 'cursor-pointer active:scale-95'
                   }`}
                 >
-                  <CardView deckTheme={gameState?.deckTheme || 'classic'} isBack />
+                  <CardView deckTheme={deckTheme} isBack />
                 </div>
               </div>
 
@@ -1147,6 +1167,22 @@ export function GameTableView({
             </div>
 
           </div>
+
+          {/* Status Indicators (Explosive Bomb & Hurry Up 3s Blitz) */}
+          {(explosiveActive || hurryUpTurns > 0) && (
+            <div className="flex flex-col items-center gap-1.5 z-20 mt-1 mb-0.5">
+              {explosiveActive && (
+                <div className="animate-bounce flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-gradient-to-r from-red-600 to-amber-600 border border-red-300 text-white text-[11px] font-black shadow-[0_0_20px_rgba(239,68,68,0.9)]">
+                  <span>💣 炸彈已安裝！下位抽牌者承受 +4 張炸彈重創！</span>
+                </div>
+              )}
+              {hurryUpTurns > 0 && (
+                <div className="animate-pulse flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-gradient-to-r from-amber-500 to-yellow-400 border border-yellow-200 text-black text-[11px] font-black shadow-[0_0_20px_rgba(245,158,11,0.9)]">
+                  <span>⚡ 瘋狂快抽 3秒限時 (剩 {hurryUpTurns} 回合)</span>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Direction & Game Status Bar */}
           <div className="flex items-center gap-3 mt-1">
