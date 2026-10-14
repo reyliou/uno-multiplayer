@@ -36,6 +36,7 @@ export class UnoEngine {
     // Rabbids DLC theme special states
     this.hurryUpTurns = 0;
     this.explosiveActive = false;
+    this.vanishingCardId = null;
 
     this.drawPile = this.generateDeck();
     this.shuffle(this.drawPile);
@@ -121,6 +122,41 @@ export class UnoEngine {
 
     // Record initial card action to be applied after dealing animation finishes
     this.initialCard = firstCard;
+  }
+
+  // Steam UNO Rabbids: Remove temporary special card (Hurry Up, Explosive, Comin' Through, or Deflecting Shield)
+  // after its tabletop animation finishes so the previous top card remains exposed!
+  vanishTopSpecialCard(cardId) {
+    const idx = this.discardPile.findIndex(c => c.id === cardId);
+    if (idx !== -1 && this.discardPile.length > 1) {
+      this.discardPile.splice(idx, 1);
+    }
+    if (this.vanishingCardId === cardId) {
+      this.vanishingCardId = null;
+    }
+  }
+
+  // Steam UNO Rabbids: Two-wave card distribution for Comin' Through!
+  // Wave 1: Deals cards to everyone EXCEPT the player who played it.
+  // Wave 2: Deals cards to EVERYONE including the player who played it.
+  executeCominThroughWave(casterIndex, wave = 1) {
+    const drawnInfo = [];
+    if (wave === 1) {
+      this.players.forEach((p, idx) => {
+        if (idx !== casterIndex) {
+          const cards = this.drawCardsForPlayer(idx, 1);
+          drawnInfo.push({ playerIndex: idx, cards });
+        }
+      });
+      this.addLog(`🌪️ 【瘋狂借過・第一波】兔兔推車衝向所有對手，其他玩家各抽 1 張牌！`);
+    } else if (wave === 2) {
+      this.players.forEach((p, idx) => {
+        const cards = this.drawCardsForPlayer(idx, 1);
+        drawnInfo.push({ playerIndex: idx, cards });
+      });
+      this.addLog(`🌪️ 【瘋狂借過・第二波】兔兔推車失控迴轉，全場所有玩家（含出牌者）再各抽 1 張牌！`);
+    }
+    return drawnInfo;
   }
 
   finishDealing() {
@@ -510,7 +546,17 @@ export class UnoEngine {
       };
     }
 
-    if (card.color === 'wild' && !chosenColor) {
+    // Steam UNO Rabbids Rule Check:
+    // - rabbids_hurry_up, rabbids_explosive, rabbids_comin_through NEVER change color and vanish after activation!
+    // - rabbids_wild_shield ONLY changes color when played normally (stackedDrawCount === 0).
+    //   When played defensively against a +2/+4 stack (stackedDrawCount > 0), it does NOT change color and vanishes after blocking!
+    const isVanishingRabbidsCard =
+      card.value === 'rabbids_hurry_up' ||
+      card.value === 'rabbids_explosive' ||
+      card.value === 'rabbids_comin_through' ||
+      (card.value === 'rabbids_wild_shield' && this.stackedDrawCount > 0);
+
+    if (card.color === 'wild' && !chosenColor && !isVanishingRabbidsCard) {
       if (player.isAi) {
         chosenColor = this.getBestColorForPlayer(playerIndex);
       } else {
@@ -545,7 +591,11 @@ export class UnoEngine {
     let effectMsg = '';
     let nextStep = 1;
 
-    if (card.color === 'wild') {
+    if (isVanishingRabbidsCard) {
+      // Keep the existing currentColor and currentValue intact!
+      card.displayAssetKey = card.assetKey;
+      this.vanishingCardId = card.id;
+    } else if (card.color === 'wild') {
       this.currentColor = chosenColor || 'red';
       this.currentValue = card.value;
       card.chosenColor = this.currentColor;
@@ -553,8 +603,6 @@ export class UnoEngine {
         card.displayAssetKey = `wild_draw4_${this.currentColor}`;
       } else if (card.value === 'rabbids_wild_shield') {
         card.displayAssetKey = `rabbids_wild_shield_${this.currentColor}`;
-      } else if (card.value.startsWith('rabbids_')) {
-        card.displayAssetKey = card.assetKey;
       } else {
         card.displayAssetKey = `wild_${this.currentColor}`;
       }
@@ -606,24 +654,22 @@ export class UnoEngine {
     // Handle Rabbids DLC Special Action Cards
     if (card.value === 'rabbids_hurry_up') {
       this.hurryUpTurns = this.playerCount;
-      effectMsg += ` ⚡ 瘋狂快抽觸發！接下來 ${this.playerCount} 回合每位玩家只有 3 秒思考時間！`;
+      effectMsg += ` ⚡ 瘋狂快抽觸發 (保留當前${this.colorNames[this.currentColor] || '底牌'})！接下來 ${this.playerCount} 個回合每位玩家只有 3 秒思考時間！`;
     } else if (card.value === 'rabbids_explosive') {
       this.explosiveActive = true;
-      effectMsg += ` 💣 炸彈已安裝！下一位被迫抽牌或承受罰抽的玩家，將額外多抽 +4 張炸彈牌！`;
+      effectMsg += ` 💣 炸彈已安裝在抽牌堆 (保留當前${this.colorNames[this.currentColor] || '底牌'})！下一位抽牌或罰抽的玩家將引爆炸彈 (額外 +4 張)！`;
     } else if (card.value === 'rabbids_comin_through') {
-      this.players.forEach((p, idx) => {
-        if (idx !== playerIndex) {
-          this.drawCardsForPlayer(idx, 1);
-        }
-      });
-      effectMsg += ` 🌪️ 瘋狂借過！牌桌所有其他玩家被迫各抽 1 張牌！`;
+      effectMsg += ` 🌪️ 瘋狂借過發動 (保留當前${this.colorNames[this.currentColor] || '底牌'})！準備展開兩波全場瘋狂發牌！`;
     } else if (card.value === 'rabbids_wild_shield') {
       if (this.stackedDrawCount > 0) {
-        const nextVictim = this.players[this.getNextTurnIndex(1)];
-        effectMsg += ` 🛡️ 兔兔盾牌反彈！將累積的【+${this.stackedDrawCount} 張】罰抽全數轉移給 ${nextVictim.name}！`;
+        const blockedCount = this.stackedDrawCount;
+        this.stackedDrawCount = 0;
+        this.stackedDrawType = null;
+        this.lastWildDraw4Info = null;
+        effectMsg += ` 🛡️ 兔兔盾牌展開絕對防禦！完全擋下並消除【+${blockedCount} 張】罰抽 (保留當前${this.colorNames[this.currentColor] || '底牌'})！`;
         nextStep = 1;
       } else {
-        effectMsg += ` 🛡️ 兔兔盾牌防護！`;
+        effectMsg += ` 🛡️ 兔兔盾牌安全變色！`;
       }
     }
 
@@ -649,6 +695,7 @@ export class UnoEngine {
       playerId: playerIndex,
       playerName: player.name,
       card: { ...card },
+      isVanishing: isVanishingRabbidsCard,
       skippedPlayerId: skippedPlayer ? skippedPlayer.id : null,
       skippedPlayerName: skippedPlayer ? skippedPlayer.name : null,
       timestamp: Date.now()
@@ -662,6 +709,7 @@ export class UnoEngine {
     return {
       success: true,
       card,
+      isVanishing: isVanishingRabbidsCard,
       effectMsg,
       needsUnoGracePeriod,
       stackedCount: this.stackedDrawCount,
@@ -1223,6 +1271,7 @@ export class UnoEngine {
       deckTheme: this.deckTheme || 'classic',
       hurryUpTurns: this.hurryUpTurns || 0,
       explosiveActive: !!this.explosiveActive,
+      vanishingCardId: this.vanishingCardId || null,
       gameMode: this.gameMode,
       targetScore: this.targetScore,
       drawRule: this.drawRule,

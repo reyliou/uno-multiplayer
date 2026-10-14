@@ -141,6 +141,7 @@ export function GameTableView({
   const [isHandCollapsed, setIsHandCollapsed] = useState(false);
   const [isSorted, setIsSorted] = useState(true);
   const [skippedPlayerInfo, setSkippedPlayerInfo] = useState(null);
+  const [rabbidsEventBanner, setRabbidsEventBanner] = useState('');
   const prevActionTimeRef = useRef(0);
 
   // Refs for flight animations
@@ -189,7 +190,8 @@ export function GameTableView({
     lastWildDraw4PlayerName = null,
     deckTheme = 'classic',
     hurryUpTurns = 0,
-    explosiveActive = false
+    explosiveActive = false,
+    vanishingCardId = null
   } = gameState || {};
 
   const is2v2 = gameMode === '2v2';
@@ -473,6 +475,22 @@ export function GameTableView({
             sourceName: lastAction.playerName
           });
           setTimeout(() => setSkippedPlayerInfo(null), 2400);
+        } else if (lastAction.card.value === 'rabbids_comin_through') {
+          soundManager.playWild();
+          setRabbidsEventBanner(`🌪️ 【${lastAction.playerName}】發動瘋狂借過！第一波衝撞對手 -> 第二波全場發牌！`);
+          setTimeout(() => setRabbidsEventBanner(''), 2100);
+        } else if (lastAction.card.value === 'rabbids_explosive') {
+          soundManager.playAction();
+          setRabbidsEventBanner(`💣 【${lastAction.playerName}】在抽牌堆安裝了瘋狂定時炸彈 (+4)！`);
+          setTimeout(() => setRabbidsEventBanner(''), 1600);
+        } else if (lastAction.card.value === 'rabbids_hurry_up') {
+          soundManager.playWild();
+          setRabbidsEventBanner(`⚡ 【${lastAction.playerName}】啟動瘋狂快抽！全場進入 3 秒極限思考！`);
+          setTimeout(() => setRabbidsEventBanner(''), 1600);
+        } else if (lastAction.card.value === 'rabbids_wild_shield' && lastAction.isVanishing) {
+          soundManager.playWild();
+          setRabbidsEventBanner(`🛡️ 【${lastAction.playerName}】展開兔兔盾牌！完美抵銷所有累積罰抽！`);
+          setTimeout(() => setRabbidsEventBanner(''), 1600);
         } else if (lastAction.card.value === 'reverse') {
           soundManager.playAction();
         } else if (['draw2', 'wild_draw4'].includes(lastAction.card.value)) {
@@ -1066,6 +1084,12 @@ export function GameTableView({
 
         {/* 5. CENTER TABLE PILES (Draw Pile & Discard Pile lying on the center of the table) */}
         <div className="relative z-10 -mt-12 flex flex-col items-center justify-center gap-3 pointer-events-auto">
+          {rabbidsEventBanner && (
+            <div className="absolute -top-14 left-1/2 -translate-x-1/2 z-50 px-5 py-1.5 rounded-full bg-gradient-to-r from-pink-600 via-amber-500 to-purple-600 border-2 border-yellow-200 text-white font-black text-xs sm:text-sm shadow-[0_0_25px_rgba(236,72,153,0.9)] animate-bounce flex items-center gap-1.5 whitespace-nowrap">
+              <span>{rabbidsEventBanner}</span>
+            </div>
+          )}
+
           {skippedPlayerInfo && (
             <div className="absolute -top-12 left-1/2 -translate-x-1/2 z-40 px-4 py-1.5 rounded-full bg-red-600 border-2 border-yellow-300 text-white font-black text-xs sm:text-sm shadow-2xl animate-bounce flex items-center gap-1.5 whitespace-nowrap">
               <span>🚫 【{skippedPlayerInfo.sourceName}】出禁止牌！跳過【{skippedPlayerInfo.playerName}】！</span>
@@ -1143,7 +1167,9 @@ export function GameTableView({
                 ))}
 
                 <div
-                  className="relative z-10 transition-transform duration-200"
+                  className={`relative z-10 transition-transform duration-200 ${
+                    topCard && vanishingCardId === topCard.id ? 'rabbids-vanish-card' : ''
+                  }`}
                   style={{
                     transform: recentDiscardPile?.length
                       ? `translate(${recentDiscardPile[recentDiscardPile.length - 1].offsetX || 0}px, ${recentDiscardPile[recentDiscardPile.length - 1].offsetY || 0}px) rotate(${recentDiscardPile[recentDiscardPile.length - 1].rot || -3}deg)`

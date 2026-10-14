@@ -381,12 +381,8 @@ export class P2PNetwork {
           this.broadcastSoundEvent(res.card.color === 'wild' ? 'wild' : (['skip', 'reverse', 'draw2', 'wild_draw4'].includes(res.card.value) ? 'action' : 'card'));
           this.broadcastGameState();
 
-          if (!res.gameOver && res.card.value === 'rabbids_comin_through') {
-            this.isContinuousDrawing = true;
-            setTimeout(() => {
-              this.isContinuousDrawing = false;
-              this.checkAiTurn();
-            }, 650);
+          if (!res.gameOver && res.isVanishing) {
+            this.handleSpecialVanishAndEffects(guest.slotIndex, res.card);
           } else {
             this.checkAiTurn();
           }
@@ -406,16 +402,7 @@ export class P2PNetwork {
           soundManager.playWild();
           this.broadcastSoundEvent('wild');
           this.broadcastGameState();
-
-          if (res.card && res.card.value === 'rabbids_comin_through') {
-            this.isContinuousDrawing = true;
-            setTimeout(() => {
-              this.isContinuousDrawing = false;
-              this.checkAiTurn();
-            }, 650);
-          } else {
-            this.checkAiTurn();
-          }
+          this.checkAiTurn();
         }
         break;
       }
@@ -1059,12 +1046,8 @@ export class P2PNetwork {
         this.broadcastSoundEvent(res.card.color === 'wild' ? 'wild' : (['skip', 'reverse', 'draw2', 'wild_draw4'].includes(res.card.value) ? 'action' : 'card'));
         this.broadcastGameState();
 
-        if (!res.gameOver && res.card.value === 'rabbids_comin_through') {
-          this.isContinuousDrawing = true;
-          setTimeout(() => {
-            this.isContinuousDrawing = false;
-            this.checkAiTurn();
-          }, 600);
+        if (!res.gameOver && res.isVanishing) {
+          this.handleSpecialVanishAndEffects(aiIndex, res.card);
         } else {
           this.checkAiTurn();
         }
@@ -1089,7 +1072,11 @@ export class P2PNetwork {
                   else soundManager.playCard();
                   this.broadcastSoundEvent(card.color === 'wild' ? 'wild' : 'card');
                   this.broadcastGameState();
-                  this.checkAiTurn();
+                  if (!playRes.gameOver && playRes.isVanishing) {
+                    this.handleSpecialVanishAndEffects(aiIndex, playRes.card);
+                  } else {
+                    this.checkAiTurn();
+                  }
                 }
               }
             }, 600);
@@ -1125,7 +1112,11 @@ export class P2PNetwork {
                 else soundManager.playCard();
                 this.broadcastSoundEvent(card.color === 'wild' ? 'wild' : 'card');
                 this.broadcastGameState();
-                this.checkAiTurn();
+                if (!playRes.gameOver && playRes.isVanishing) {
+                  this.handleSpecialVanishAndEffects(aiIndex, playRes.card);
+                } else {
+                  this.checkAiTurn();
+                }
               }
             }
           }, 600 + extraWait);
@@ -1287,6 +1278,61 @@ export class P2PNetwork {
     }
   }
 
+  // Steam UNO Rabbids: Handles the tabletop transition, 2-wave distribution for Comin' Through,
+  // and fade-out vanish removal for Hurry Up, Explosive Results, Comin' Through, and Deflecting Shield!
+  handleSpecialVanishAndEffects(casterIndex, card) {
+    if (!this.isHost || !this.engine || !card) return;
+
+    if (this.turnTimeoutTimer) {
+      clearTimeout(this.turnTimeoutTimer);
+      this.turnTimeoutTimer = null;
+    }
+
+    this.isContinuousDrawing = true;
+    this.engine.isContinuousDrawing = true;
+
+    if (card.value === 'rabbids_comin_through') {
+      // Phase 1: 550ms transition after card lands on discard pile -> Wave 1 (All opponents draw 1)
+      setTimeout(() => {
+        if (!this.engine || this.engine.gameStatus === 'game_over') return;
+        this.engine.executeCominThroughWave(casterIndex, 1);
+        soundManager.playDraw();
+        this.broadcastSoundEvent('draw');
+        this.broadcastGameState();
+
+        // Phase 2: 750ms later -> Wave 2 (Everyone including caster draws 1)
+        setTimeout(() => {
+          if (!this.engine || this.engine.gameStatus === 'game_over') return;
+          this.engine.executeCominThroughWave(casterIndex, 2);
+          soundManager.playDraw();
+          this.broadcastSoundEvent('draw');
+          this.broadcastGameState();
+
+          // Phase 3: 650ms later -> Card fades out and vanishes from the discard pile, exposing previous card
+          setTimeout(() => {
+            if (!this.engine || this.engine.gameStatus === 'game_over') return;
+            this.engine.vanishTopSpecialCard(card.id);
+            this.finishDrawingCleanup();
+            this.engine.turnStartTime = Date.now();
+            this.broadcastGameState();
+            this.checkAiTurn();
+          }, 650);
+        }, 750);
+      }, 550);
+    } else {
+      // Hurry Up!, Explosive Results, or Deflecting Wild Shield:
+      // Show card on top of the discard pile for 1050ms while playing its fade-out animation, then vanish it!
+      setTimeout(() => {
+        if (!this.engine || this.engine.gameStatus === 'game_over') return;
+        this.engine.vanishTopSpecialCard(card.id);
+        this.finishDrawingCleanup();
+        this.engine.turnStartTime = Date.now();
+        this.broadcastGameState();
+        this.checkAiTurn();
+      }, 1050);
+    }
+  }
+
   getHostIndex() {
     const idx = this.lobbyPlayers.findIndex(p => p.isHost);
     return idx !== -1 ? idx : 0;
@@ -1317,12 +1363,8 @@ export class P2PNetwork {
       this.broadcastSoundEvent(res.card.color === 'wild' ? 'wild' : (['skip', 'reverse', 'draw2', 'wild_draw4'].includes(res.card.value) ? 'action' : 'card'));
       this.broadcastGameState();
 
-      if (!res.gameOver && res.card.value === 'rabbids_comin_through') {
-        this.isContinuousDrawing = true;
-        setTimeout(() => {
-          this.isContinuousDrawing = false;
-          this.checkAiTurn();
-        }, 650);
+      if (!res.gameOver && res.isVanishing) {
+        this.handleSpecialVanishAndEffects(hostIdx, res.card);
       } else {
         this.checkAiTurn();
       }
@@ -1338,16 +1380,7 @@ export class P2PNetwork {
       soundManager.playWild();
       this.broadcastSoundEvent('wild');
       this.broadcastGameState();
-
-      if (res.card && res.card.value === 'rabbids_comin_through') {
-        this.isContinuousDrawing = true;
-        setTimeout(() => {
-          this.isContinuousDrawing = false;
-          this.checkAiTurn();
-        }, 650);
-      } else {
-        this.checkAiTurn();
-      }
+      this.checkAiTurn();
     }
     return res;
   }
