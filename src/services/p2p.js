@@ -386,7 +386,7 @@ export class P2PNetwork {
             setTimeout(() => {
               this.isContinuousDrawing = false;
               this.checkAiTurn();
-            }, 600);
+            }, 650);
           } else {
             this.checkAiTurn();
           }
@@ -412,7 +412,7 @@ export class P2PNetwork {
             setTimeout(() => {
               this.isContinuousDrawing = false;
               this.checkAiTurn();
-            }, 600);
+            }, 650);
           } else {
             this.checkAiTurn();
           }
@@ -453,9 +453,16 @@ export class P2PNetwork {
 
         const res = this.engine.playerDrawCard(guest.slotIndex);
         if (res.success) {
-          soundManager.playDraw();
-          this.broadcastSoundEvent('draw');
+          if (res.extraBombCards > 0) {
+            soundManager.playPenalty();
+            this.broadcastSoundEvent('penalty');
+          } else {
+            soundManager.playDraw();
+            this.broadcastSoundEvent('draw');
+          }
           this.broadcastGameState();
+
+          const extraWait = (res.extraBombCards || 0) * 180;
 
           if (!res.canPlay) {
             this.isContinuousDrawing = true;
@@ -465,17 +472,17 @@ export class P2PNetwork {
               this.engine.finishAutoPass(guest.slotIndex, res.card);
               this.broadcastGameState();
               this.checkAiTurn();
-            }, 750);
+            }, 750 + extraWait);
           } else {
             this.isContinuousDrawing = true;
             setTimeout(() => {
               this.isContinuousDrawing = false;
               if (!this.engine || this.engine.gameStatus === 'game_over') return;
               this.engine.turnStartTime = Date.now();
-              this.engine.turnDuration = 15;
+              this.engine.turnDuration = this.engine.getActiveTurnDuration();
               this.resetTurnTimer();
               this.broadcastGameState();
-            }, 380);
+            }, 380 + extraWait);
           }
         } else {
           conn.send({ type: 'ACTION_FAILED', reason: res.reason });
@@ -903,9 +910,11 @@ export class P2PNetwork {
       ? ` (本局累計超時 ${player.timeoutCount}/2 次)`
       : '';
 
+    const limitSec = this.engine.turnDuration || 15;
+
     // 1. If player was facing stacked penalty, execute penalty draw then kick if 2 strikes
     if (this.engine.stackedDrawCount > 0) {
-      this.engine.addLog(`⏰ 【${player.name}】思考超時 (15 秒)，系統自動承受罰抽！${strikeTag}`);
+      this.engine.addLog(`⏰ 【${player.name}】思考超時 (${limitSec} 秒)，系統自動承受罰抽！${strikeTag}`);
       this.executePenaltyDraw(playerIndex, () => {
         if (shouldKick) {
           this.kickPlayer(playerIndex, '單局思考超時累計達 2 次，系統已自動將你移出並由 AI 接管！');
@@ -916,7 +925,7 @@ export class P2PNetwork {
 
     // 2. If player has already drawn this turn, auto-pass
     if (this.engine.hasDrawnThisTurn) {
-      this.engine.addLog(`⏰ 【${player.name}】思考超時 (15 秒)，系統自動過牌！${strikeTag}`);
+      this.engine.addLog(`⏰ 【${player.name}】思考超時 (${limitSec} 秒)，系統自動過牌！${strikeTag}`);
       const passRes = this.engine.passTurn(playerIndex);
       if (passRes.success) {
         if (shouldKick) {
@@ -929,7 +938,8 @@ export class P2PNetwork {
       return;
     }
 
-    // 3. Player hasn't drawn: auto draw 1 card and pass!
+    // 3. Player hasn't drawn: check explosive bomb, auto draw 1 card and pass!
+    const extraBombCards = this.engine.checkAndTriggerExplosive(playerIndex);
     const card = this.engine.drawCardRaw();
     player.hand.push(card);
     if (player.hand.length > 1) {
@@ -938,9 +948,14 @@ export class P2PNetwork {
       player.pendingUnoCall = false;
     }
 
-    this.engine.addLog(`⏰ 【${player.name}】思考超時 (15 秒)，系統自動抽一張牌並過牌！${strikeTag}`);
-    soundManager.playDraw();
-    this.broadcastSoundEvent('draw');
+    this.engine.addLog(`⏰ 【${player.name}】思考超時 (${limitSec} 秒)，系統自動抽一張牌並過牌！${strikeTag}`);
+    if (extraBombCards > 0) {
+      soundManager.playPenalty();
+      this.broadcastSoundEvent('penalty');
+    } else {
+      soundManager.playDraw();
+      this.broadcastSoundEvent('draw');
+    }
 
     this.engine.advanceTurn(1);
 
@@ -950,7 +965,17 @@ export class P2PNetwork {
     }
 
     this.broadcastGameState();
-    this.checkAiTurn();
+
+    const extraWait = (extraBombCards || 0) * 180;
+    if (extraWait > 0) {
+      this.isContinuousDrawing = true;
+      setTimeout(() => {
+        this.isContinuousDrawing = false;
+        this.checkAiTurn();
+      }, extraWait + 350);
+    } else {
+      this.checkAiTurn();
+    }
   }
 
   checkAiTurn() {
@@ -1077,9 +1102,16 @@ export class P2PNetwork {
 
       const res = this.engine.playerDrawCard(aiIndex);
       if (res.success) {
-        soundManager.playDraw();
-        this.broadcastSoundEvent('draw');
+        if (res.extraBombCards > 0) {
+          soundManager.playPenalty();
+          this.broadcastSoundEvent('penalty');
+        } else {
+          soundManager.playDraw();
+          this.broadcastSoundEvent('draw');
+        }
         this.broadcastGameState();
+
+        const extraWait = (res.extraBombCards || 0) * 180;
 
         if (res.canPlay) {
           setTimeout(() => {
@@ -1096,14 +1128,14 @@ export class P2PNetwork {
                 this.checkAiTurn();
               }
             }
-          }, 600);
+          }, 600 + extraWait);
         } else {
           setTimeout(() => {
             if (!this.engine || this.engine.gameStatus === 'game_over') return;
             this.engine.finishAutoPass(aiIndex, res.card);
             this.broadcastGameState();
             this.checkAiTurn();
-          }, 750);
+          }, 750 + extraWait);
         }
       }
     }
@@ -1114,6 +1146,14 @@ export class P2PNetwork {
     if (this.engine.currentTurn !== playerIndex) return;
     if (this.isContinuousDrawing) return;
     if (this.engine.hasDrawnThisTurn) return;
+
+    // If Explosive Bomb is armed on the draw pile, detonate it first!
+    if (this.engine.explosiveActive) {
+      this.engine.checkAndTriggerExplosive(playerIndex);
+      soundManager.playPenalty();
+      this.broadcastSoundEvent('penalty');
+      this.broadcastGameState();
+    }
 
     this.isContinuousDrawing = true;
     this.engine.isContinuousDrawing = true;
@@ -1166,6 +1206,16 @@ export class P2PNetwork {
   executePenaltyDraw(playerIndex, onComplete) {
     if (!this.isHost || !this.engine) return;
     if (this.isContinuousDrawing) return;
+
+    // If Explosive Bomb is armed while taking a penalty draw, add +4 to the penalty stack so all cards animate one by one!
+    if (this.engine.explosiveActive) {
+      this.engine.explosiveActive = false;
+      this.engine.stackedDrawCount += 4;
+      const victimName = this.engine.players[playerIndex]?.name || '玩家';
+      this.engine.addLog(`💥 轟！！！瘋狂定時炸彈在【${victimName}】承受罰抽時引爆！罰抽瞬間暴增 +4 張 (共 ${this.engine.stackedDrawCount} 張)！`);
+      soundManager.playPenalty();
+      this.broadcastSoundEvent('penalty');
+    }
 
     const countToDraw = this.engine.stackedDrawCount;
     if (countToDraw <= 0) return;
@@ -1272,7 +1322,7 @@ export class P2PNetwork {
         setTimeout(() => {
           this.isContinuousDrawing = false;
           this.checkAiTurn();
-        }, 600);
+        }, 650);
       } else {
         this.checkAiTurn();
       }
@@ -1294,7 +1344,7 @@ export class P2PNetwork {
         setTimeout(() => {
           this.isContinuousDrawing = false;
           this.checkAiTurn();
-        }, 600);
+        }, 650);
       } else {
         this.checkAiTurn();
       }
@@ -1329,9 +1379,16 @@ export class P2PNetwork {
 
     const res = this.engine.playerDrawCard(hostIdx);
     if (res.success) {
-      soundManager.playDraw();
-      this.broadcastSoundEvent('draw');
+      if (res.extraBombCards > 0) {
+        soundManager.playPenalty();
+        this.broadcastSoundEvent('penalty');
+      } else {
+        soundManager.playDraw();
+        this.broadcastSoundEvent('draw');
+      }
       this.broadcastGameState();
+
+      const extraWait = (res.extraBombCards || 0) * 180;
 
       if (!res.canPlay) {
         this.isContinuousDrawing = true;
@@ -1341,17 +1398,17 @@ export class P2PNetwork {
           this.engine.finishAutoPass(hostIdx, res.card);
           this.broadcastGameState();
           this.checkAiTurn();
-        }, 750);
+        }, 750 + extraWait);
       } else {
         this.isContinuousDrawing = true;
         setTimeout(() => {
           this.isContinuousDrawing = false;
           if (!this.engine || this.engine.gameStatus === 'game_over') return;
           this.engine.turnStartTime = Date.now();
-          this.engine.turnDuration = 15;
+          this.engine.turnDuration = this.engine.getActiveTurnDuration();
           this.resetTurnTimer();
           this.broadcastGameState();
-        }, 380);
+        }, 380 + extraWait);
       }
     }
     return res;

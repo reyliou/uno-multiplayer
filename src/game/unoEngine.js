@@ -921,6 +921,7 @@ export class UnoEngine {
       success: true,
       card,
       canPlay,
+      extraBombCards,
       handCount: player.hand.length
     };
   }
@@ -940,7 +941,7 @@ export class UnoEngine {
     if (!canPlay) {
       this.hasDrawnThisTurn = false;
       this.addLog(`💨 ${player.name} 連續抽牌已達上限仍無法出牌，自動跳過回合！`);
-      this.currentTurn = this.getNextTurnIndex(1);
+      this.advanceTurn(1);
       this.lastAction = {
         type: 'draw_autopass',
         playerId: playerIndex,
@@ -995,8 +996,7 @@ export class UnoEngine {
     }
     this.hasDrawnThisTurn = false;
     this.addLog(`${this.players[playerIndex].name} 選擇過牌。`);
-    this.currentTurn = this.getNextTurnIndex(1);
-    this.turnStartTime = Date.now();
+    this.advanceTurn(1);
     return {
       success: true,
       nextPlayer: this.players[this.currentTurn]
@@ -1080,7 +1080,7 @@ export class UnoEngine {
         msg += ` ${challenger.name} 免受罰抽，回合繼續，請出牌或抽牌！`;
         this.addLog(msg);
         this.turnStartTime = Date.now();
-        this.turnDuration = 15;
+        this.turnDuration = this.getActiveTurnDuration();
         return {
           success: true,
           challengedWon: false,

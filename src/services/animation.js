@@ -117,7 +117,17 @@ class CardAnimationService {
       startScale: 1,
       endScale: 1,
       duration: 380,
-      onComplete
+      onComplete: () => {
+        if (toEl) {
+          toEl.classList.remove('impact-bounce');
+          void toEl.offsetWidth; // trigger reflow
+          toEl.classList.add('impact-bounce');
+          setTimeout(() => {
+            toEl.classList.remove('impact-bounce');
+          }, 320);
+        }
+        if (onComplete) onComplete();
+      }
     });
   }
 
