@@ -18,7 +18,7 @@
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     user-select: none;
     -webkit-font-smoothing: antialiased;
-    overflow-x: hidden;
+    overflow: hidden;
   }
 }
 
@@ -34,50 +34,69 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  perspective: 960px;
-  perspective-origin: 50% 38%;
-  overflow: hidden;
+  perspective: 1050px;
+  perspective-origin: 50% 32%;
+  overflow: visible;
   position: relative;
 }
 
-/* Classic Casino Green Felt UNO Arena Table (with True 3D Perspective) */
+/* Classic Casino Green Felt UNO Arena Table (Extended toward the bottom player) */
 .table-surface-3d {
-  width: min(1120px, 94vw);
-  height: min(640px, 68vh);
-  min-height: 480px;
-  border-radius: 64px;
-  background: radial-gradient(ellipse at center, rgba(30, 96, 52, 0.96) 0%, rgba(14, 52, 28, 0.98) 60%, rgba(5, 22, 11, 1) 100%);
-  border: 8px solid #281a0e;
+  width: min(1220px, 92vw);
+  height: min(760px, 82dvh);
+  min-height: 540px;
+  border-radius: 72px;
+  background: radial-gradient(ellipse at 50% 45%, rgba(32, 105, 56, 0.98) 0%, rgba(14, 54, 29, 0.99) 62%, rgba(5, 22, 11, 1) 100%);
+  border: 9px solid #2b1b0e;
   box-shadow: 
-    inset 0 0 80px rgba(0, 0, 0, 0.8),
-    0 35px 70px rgba(0, 0, 0, 0.92),
+    inset 0 0 85px rgba(0, 0, 0, 0.82),
+    0 20px 0 #170e07,
+    0 42px 80px rgba(0, 0, 0, 0.95),
     0 0 0 2.5px rgba(244, 196, 48, 0.35);
   transform-style: preserve-3d;
-  transform: translateY(-22px) rotateX(46deg);
+  transform-origin: 50% 60%;
+  transform: translateY(24px) rotateX(42deg);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  padding: 16px 28px;
+  padding: 24px 64px 48px 64px;
   position: relative;
 }
 
-/* 3D Standing Opponents on the Tilted Table */
-.standing-3d-top {
+/* 3D Opponent Hands Inside the Table Rim (Aligned with perspective edges) */
+.hand-3d-top {
   transform-origin: bottom center;
-  transform: rotateX(-46deg);
-  transform-style: preserve-3d;
+  transform: translateZ(8px) rotateX(-38deg);
+  backface-visibility: hidden;
+  will-change: transform;
 }
 
-.standing-3d-left {
-  transform-origin: bottom center;
-  transform: rotateZ(-55deg) rotateX(-46deg);
-  transform-style: preserve-3d;
+/* Left opponent hand: sits inside left felt, angled parallel to the left perspective table edge */
+.hand-3d-left {
+  transform-origin: center center;
+  transform: translate3d(28px, 0px, 12px) rotateZ(72deg) rotateX(-38deg);
+  backface-visibility: hidden;
 }
 
-.standing-3d-right {
-  transform-origin: bottom center;
-  transform: rotateZ(55deg) rotateX(-46deg);
-  transform-style: preserve-3d;
+/* Right opponent hand: sits inside right felt, angled parallel to the right perspective table edge */
+.hand-3d-right {
+  transform-origin: center center;
+  transform: translate3d(-28px, 0px, 12px) rotateZ(-72deg) rotateX(-38deg);
+  backface-visibility: hidden;
+}
+
+/* Upright 2D-like Billboard for Player Name Badges inside 3D table */
+.badge-billboard-top {
+  transform: translateZ(20px) rotateX(-42deg);
+  backface-visibility: hidden;
+}
+.badge-billboard-left {
+  transform: translate3d(10px, -18px, 36px) rotateX(-42deg);
+  backface-visibility: hidden;
+}
+.badge-billboard-right {
+  transform: translate3d(-10px, -18px, 36px) rotateX(-42deg);
+  backface-visibility: hidden;
 }
 
 /* Active Turn Pill Ring */
@@ -124,18 +143,19 @@
 
 /* Card Standing Mirror Reflection (Clean subtle table gloss) */
 .card-reflection {
-  -webkit-box-reflect: below 2px linear-gradient(transparent, transparent 72%, rgba(0, 0, 0, 0.22));
+  -webkit-box-reflect: below 2px linear-gradient(transparent, transparent 68%, rgba(0, 0, 0, 0.28));
 }
 
 /* 3D Realistic Deck Stack Depth */
 .deck-3d-stack {
   position: relative;
   box-shadow: 
-    1px 1px 0 rgba(10, 35, 18, 0.9),
-    2px 2px 0 rgba(8, 28, 14, 0.9),
-    3px 3px 0 rgba(6, 22, 11, 0.9),
-    4px 4px 0 rgba(4, 16, 8, 0.95),
-    5px 5px 12px rgba(0, 0, 0, 0.7);
+    1px 2px 0 #e2e8f0,
+    2px 4px 0 #cbd5e1,
+    3px 6px 0 #94a3b8,
+    4px 8px 0 #64748b,
+    5px 10px 0 #334155,
+    6px 14px 20px rgba(0, 0, 0, 0.8);
   border-radius: 12px;
 }
 
@@ -151,4 +171,3 @@
   background: rgba(255, 255, 255, 0.2);
   border-radius: 3px;
 }
-
