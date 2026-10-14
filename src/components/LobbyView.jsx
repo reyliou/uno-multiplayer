@@ -44,6 +44,7 @@ export function LobbyView({
   onSetGameMode,
   onSetFfaCount,
   onSwapSlots,
+  onKickPlayer,
   onStartGame,
   onLeaveRoom
 }) {
@@ -310,7 +311,23 @@ export function LobbyView({
                               : 'bg-amber-950/90 text-amber-300 border-amber-500/40 hover:bg-amber-900'
                           }`}
                         >
-                          {p.isAi ? '設為開放' : p.peerId ? '踢出換AI' : '換成電腦'}
+                          {p.isAi ? '設為開放' : p.peerId ? '換成電腦' : '換成電腦'}
+                        </button>
+                      )}
+                      {!p.isHost && !p.isAi && p.peerId && onKickPlayer && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (window.confirm(`確定要將玩家【${p.name}】移出房間嗎？`)) {
+                              soundManager.playPenalty();
+                              onKickPlayer(idx);
+                            }
+                          }}
+                          title="將該玩家踢出房間"
+                          className="text-[11px] py-1.5 px-2.5 rounded-xl font-extrabold bg-red-950/90 hover:bg-red-900 text-red-300 border border-red-500/40 transition cursor-pointer"
+                        >
+                          踢除
                         </button>
                       )}
                       <button

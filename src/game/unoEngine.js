@@ -65,6 +65,7 @@ export class UnoEngine {
       this.players.push({
         id: i,
         name: pInfo ? pInfo.name : (i === 0 ? '房主' : `玩家 ${i + 1}`),
+        isHost: pInfo ? !!pInfo.isHost : (i === 0),
         isAi: pInfo ? !!pInfo.isAi : (i !== 0),
         peerId: pInfo ? pInfo.peerId : null,
         teamId,
@@ -74,6 +75,7 @@ export class UnoEngine {
         calledUno: false,
         unoVulnerable: false,
         pendingUnoCall: false,
+        timeoutCount: 0,
         score
       });
     }
@@ -246,7 +248,6 @@ export class UnoEngine {
         this.shuffle(this.drawPile);
       } else {
         const top = this.discardPile.pop();
-        // Reset all recycled cards so wild cards return to pristine uncolored state
         const recycledCards = this.discardPile.map((c) => {
           if (c.color === 'wild') {
             const { chosenColor, ...rest } = c;
@@ -290,13 +291,11 @@ export class UnoEngine {
     if (!card) return false;
     if (this.isChoosingColor) return false;
 
-    // ACTIVE STACK PENALTY: Only stacking cards of the exact same type (+2 on +2, +4 on +4) are allowed!
     if (this.stackedDrawCount > 0) {
       if (!this.allowStacking) return false;
       return card.value === this.stackedDrawType;
     }
 
-    // Normal play rules:
     if (card.color === 'wild') return true;
     if (card.color === this.currentColor) return true;
     if (card.value === this.currentValue) return true;
@@ -315,7 +314,6 @@ export class UnoEngine {
     return next;
   }
 
-  // Find the color that the player has the most cards of in their remaining hand
   getBestColorForPlayer(playerIndex) {
     const player = this.players[playerIndex];
     if (!player || player.hand.length === 0) return 'red';
@@ -334,7 +332,6 @@ export class UnoEngine {
     return best;
   }
 
-  // Play a card
   playCard(playerIndex, cardId, chosenColor = null) {
     if (this.isDealing) {
       return { success: false, reason: '開局發牌中，尚未能出牌！' };
@@ -357,11 +354,8 @@ export class UnoEngine {
       return { success: false, reason: '此牌不符合出牌規則！' };
     }
 
-    // Save Wild Draw 4 challenge verification info BEFORE card is removed from hand!
-    // Steam / Official UNO rule: strictly check if player held cards matching current active COLOR!
     if (card.value === 'wild_draw4') {
       const prevColor = this.currentColor;
-      // Illegal ONLY if player had cards matching current color (excluding wild cards)
       const matchingCards = player.hand.filter(c => c.id !== card.id && c.color === prevColor);
       this.pendingWildDraw4Info = {
         playerIndex,
@@ -376,11 +370,9 @@ export class UnoEngine {
       this.lastWildDraw4Info = null;
     }
 
-    // Remove from player's hand and put on discard pile immediately
     player.hand.splice(cardIdx, 1);
     this.discardPile.push(card);
 
-    // UNO State Management (When down to 1 card)
     let needsUnoGracePeriod = false;
     if (player.hand.length === 1) {
       if (player.calledUno) {
@@ -398,7 +390,6 @@ export class UnoEngine {
             this.addLog(`👀 【${player.name}】剩最後 1 張牌但忘記喊 UNO！大家快抓漏！`);
           }
         } else {
-          // Human player did NOT manually click the UNO button!
           player.calledUno = false;
           player.unoVulnerable = true;
           player.pendingUnoCall = false;
@@ -411,7 +402,6 @@ export class UnoEngine {
       player.pendingUnoCall = false;
     }
 
-    // Check Win Condition
     if (player.hand.length === 0) {
       if (card.color === 'wild') {
         const winColor = chosenColor || this.getBestColorForPlayer(playerIndex);
@@ -445,7 +435,6 @@ export class UnoEngine {
       };
     }
 
-    // If card is wild and no chosenColor is provided yet (Human player): enter 6-second color selection phase!
     if (card.color === 'wild' && !chosenColor) {
       if (player.isAi) {
         chosenColor = this.getBestColorForPlayer(playerIndex);
@@ -457,7 +446,7 @@ export class UnoEngine {
         this.currentValue = card.value;
         card.displayAssetKey = card.assetKey;
         this.turnStartTime = Date.now();
-        this.turnDuration = 6; // 6 SECONDS EXTRA FOR COLOR SELECTION!
+        this.turnDuration = 6;
 
         this.addLog(`🌈 ${player.name} 打出了【${this.getCardDisplayName(card)}】！進入選色階段 (限時 6 秒)...`);
 
@@ -481,7 +470,6 @@ export class UnoEngine {
     let effectMsg = '';
     let nextStep = 1;
 
-    // Apply color & transformed visual asset key
     if (card.color === 'wild') {
       this.currentColor = chosenColor || 'red';
       this.currentValue = card.value;
@@ -494,7 +482,6 @@ export class UnoEngine {
       card.displayAssetKey = card.assetKey;
     }
 
-    // Special card actions & STACKING RULE
     if (card.value === 'draw2') {
       if (this.allowStacking) {
         this.stackedDrawCount += 2;
@@ -560,7 +547,6 @@ export class UnoEngine {
       timestamp: Date.now()
     };
 
-    // Move to next turn
     this.hasDrawnThisTurn = false;
     this.currentTurn = this.getNextTurnIndex(nextStep);
     this.turnStartTime = Date.now();
@@ -636,7 +622,6 @@ export class UnoEngine {
       timestamp: Date.now()
     };
 
-    // Move to next turn with fresh 15s timer
     this.hasDrawnThisTurn = false;
     this.currentTurn = this.getNextTurnIndex(nextStep);
     this.turnStartTime = Date.now();
@@ -664,7 +649,6 @@ export class UnoEngine {
       return { success: false, reason: '本回合已經主動抽過牌了，無法重複抽牌！' };
     }
 
-    // Normal draw of 1 card
     const card = this.drawCardRaw();
     this.players[playerIndex].hand.push(card);
     if (this.players[playerIndex].hand.length > 1) {
@@ -716,7 +700,6 @@ export class UnoEngine {
     };
   }
 
-  // Explicitly advance turn to next player after animations conclude
   advanceTurn(step = 1) {
     this.hasDrawnThisTurn = false;
     this.currentTurn = this.getNextTurnIndex(step);
@@ -724,7 +707,6 @@ export class UnoEngine {
     return this.currentTurn;
   }
 
-  // Finalize auto-passing turn after draw animation has fully played and paused
   finishAutoPass(playerIndex, card) {
     const player = this.players[playerIndex];
     if (!player) return;
@@ -740,7 +722,6 @@ export class UnoEngine {
     };
   }
 
-  // Finalize penalty draw sequence
   finishPenaltyDraw(playerIndex, count) {
     const player = this.players[playerIndex];
     if (!player) return;
@@ -759,7 +740,6 @@ export class UnoEngine {
     };
   }
 
-  // Draw exactly one card step during continuous drawing sequence
   drawSingleCardStep(playerIndex) {
     if (this.isDealing) {
       return { success: false, reason: '開局發牌中，尚未能抽牌！' };
@@ -795,7 +775,6 @@ export class UnoEngine {
     };
   }
 
-  // Finalize continuous drawing sequence once a playable card is found or limit reached
   finishContinuousDraw(playerIndex, drawnCards, canPlay) {
     const player = this.players[playerIndex];
     if (!player) return { success: false };
@@ -910,11 +889,6 @@ export class UnoEngine {
     return { success: false, reason: '對方已喊 UNO 或目前不可抓漏！' };
   }
 
-  // Challenge +4 legality rule:
-  // If challenged player had matching color or number/action card before playing +4:
-  // - Challenge succeeds: challenged player takes their own +4 (draws 4 penalty cards).
-  //   Prior stacked '+' is still taken by challenger. If no prior stack, challenger takes 0 and continues turn.
-  // - Challenge fails: challenger draws all stacked penalties + 2 extra cards, and is skipped.
   challengeWildDraw4(challengerIndex) {
     if (this.isDealing || this.isChoosingColor || this.gameStatus !== 'playing') {
       return { success: false, reason: '目前無法進行質疑！' };
@@ -931,7 +905,6 @@ export class UnoEngine {
     const challenger = this.players[challengerIndex];
 
     if (info.hasMatchingCard) {
-      // 質疑成功！被質疑者手牌中明明有當前顏色牌，違規出 +4
       this.drawCardsForPlayer(info.playerIndex, 4);
       const priorCount = info.priorStackedCount || 0;
       
@@ -943,7 +916,6 @@ export class UnoEngine {
       this.hasDrawnThisTurn = false;
 
       if (priorCount > 0) {
-        // 先前累積的 + 仍由質疑者吃下去
         this.drawCardsForPlayer(challengerIndex, priorCount);
         msg += ` 但先前累積的罰抽 (+${priorCount} 張) 仍由 ${challenger.name} 承受，回合結束！`;
         this.addLog(msg);
@@ -955,7 +927,6 @@ export class UnoEngine {
           msg
         };
       } else {
-        // 無先前累積，質疑者免罰抽，繼續正常出牌
         msg += ` ${challenger.name} 免受罰抽，回合繼續，請出牌或抽牌！`;
         this.addLog(msg);
         this.turnStartTime = Date.now();
@@ -968,8 +939,6 @@ export class UnoEngine {
         };
       }
     } else {
-      // 質疑失敗！被質疑者確實無該顏色手牌 (合法出牌)
-      // 質疑者承受所有累積罰抽 + 2 張額外罰抽，並跳過回合
       const totalPenalty = (this.stackedDrawCount || 4) + 2;
       this.drawCardsForPlayer(challengerIndex, totalPenalty);
 
@@ -994,7 +963,6 @@ export class UnoEngine {
   calculateScores() {
     let totalPoints = 0;
     if (this.gameMode === '2v2' && this.winner) {
-      // In 2v2: Opposing team hand cards are scored
       const winningTeamId = this.winner.teamId;
       this.players.forEach(p => {
         if (p.teamId !== winningTeamId) {
@@ -1003,7 +971,6 @@ export class UnoEngine {
           });
         }
       });
-      // Both teammates get the victory points
       this.players.forEach(p => {
         if (p.teamId === winningTeamId) {
           p.score += totalPoints;
@@ -1011,7 +978,6 @@ export class UnoEngine {
       });
       this.lastRoundPoints = totalPoints;
 
-      // Check Target Score
       if (this.targetScore > 0) {
         const winningPlayer = this.players.find(p => p.teamId === winningTeamId);
         if (winningPlayer && winningPlayer.score >= this.targetScore) {
@@ -1036,7 +1002,6 @@ export class UnoEngine {
         this.winner.score += totalPoints;
         this.lastRoundPoints = totalPoints;
 
-        // Check Target Score
         if (this.targetScore > 0 && this.winner.score >= this.targetScore) {
           this.isMatchOver = true;
           this.matchWinner = {
@@ -1068,8 +1033,6 @@ export class UnoEngine {
     if (this.log.length > 50) this.log.pop();
   }
 
-  // Produce a security-masked state for a specific client (Prevents DevTools Cheating!)
-  // In 2v2 mode: teammate's hand is sent, while opponents' hands remain hidden!
   getClientState(playerIndex) {
     const top = this.getTopCard();
     let topDisplayKey = top ? (top.displayAssetKey || top.assetKey) : 'card_back';
@@ -1108,12 +1071,14 @@ export class UnoEngine {
       players: this.players.map(p => ({
         id: p.id,
         name: p.name,
+        isHost: !!p.isHost,
         isAi: p.isAi,
         teamId: p.teamId,
         teamName: p.teamName,
         cardCount: p.hand.length,
         calledUno: p.calledUno,
         unoVulnerable: p.unoVulnerable,
+        timeoutCount: p.timeoutCount || 0,
         score: p.score
       })),
       myHand: this.players[playerIndex] ? this.players[playerIndex].hand.map(sanitizeHandCard) : [],
@@ -1122,13 +1087,13 @@ export class UnoEngine {
         ...top,
         displayAssetKey: topDisplayKey
       } : null,
-      recentDiscardPile: this.discardPile.slice(-6).map((c, i, arr) => {
+      recentDiscardPile: this.discardPile.slice(-6).map((c, i) => {
         let displayAssetKey = c.assetKey;
         if (c.color === 'wild' && c.chosenColor) {
           displayAssetKey = c.value === 'wild_draw4' ? `wild_draw4_${c.chosenColor}` : `wild_${c.chosenColor}`;
         }
         const hash = c.id ? c.id.split('').reduce((acc, ch) => acc + ch.charCodeAt(0), 0) : i * 17;
-        const rot = ((hash % 19) - 9); // subtle rotation: -9 to +9 deg
+        const rot = ((hash % 19) - 9);
         const offsetX = ((hash % 9) - 4);
         const offsetY = (((hash >> 2) % 9) - 4);
         return {

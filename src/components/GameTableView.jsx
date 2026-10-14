@@ -14,6 +14,7 @@ import {
   UserCheck,
   Swords,
   Sparkles,
+  UserMinus,
   LogOut
 } from 'lucide-react';
 import { soundManager } from '../services/sound';
@@ -122,6 +123,7 @@ export function GameTableView({
   onCallUno,
   onChallengeUno,
   onChallengeWildDraw4,
+  onKickPlayer,
   isHost = false,
   onLeaveRoom,
   roomCode
@@ -824,10 +826,31 @@ export function GameTableView({
                     <RotateCw className="w-2.5 h-2.5 animate-spin" />
                     抽牌中 ({drawingStepCount || 1})
                   </span>
-                ) : currentTurn === topPlayer.id && !skippedPlayerInfo && !isDealing && (
+                ) : currentTurn === topPlayer.id && !skippedPlayerInfo && !isDealing ? (
                   <span className="text-[10px] font-bold text-yellow-300 animate-pulse">
                     思考中
                   </span>
+                ) : null}
+
+                {topPlayer.timeoutCount > 0 && (
+                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-amber-500/20 text-amber-300 font-extrabold border border-amber-500/40" title="超時累積次數 (達 2 次將由 AI 接管)">
+                    ⏰ {topPlayer.timeoutCount}/2
+                  </span>
+                )}
+                {isHost && !topPlayer.isHost && !topPlayer.isAi && onKickPlayer && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (window.confirm(`確定要將【${topPlayer.name}】移出牌局並轉由 AI 接管嗎？`)) {
+                        onKickPlayer(topPlayer.id);
+                      }
+                    }}
+                    title="踢除此玩家並轉由 AI 接管"
+                    className="p-1 rounded-full bg-red-600/80 hover:bg-red-500 text-white transition shadow ml-1 cursor-pointer"
+                  >
+                    <UserMinus className="w-3 h-3" />
+                  </button>
                 )}
               </div>
 
@@ -909,6 +932,26 @@ export function GameTableView({
                     UNO!
                   </span>
                 )}
+                {leftPlayer.timeoutCount > 0 && (
+                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-amber-500/20 text-amber-300 font-extrabold border border-amber-500/40" title="超時累積次數 (達 2 次將由 AI 接管)">
+                    ⏰ {leftPlayer.timeoutCount}/2
+                  </span>
+                )}
+                {isHost && !leftPlayer.isHost && !leftPlayer.isAi && onKickPlayer && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (window.confirm(`確定要將【${leftPlayer.name}】移出牌局並轉由 AI 接管嗎？`)) {
+                        onKickPlayer(leftPlayer.id);
+                      }
+                    }}
+                    title="踢除此玩家並轉由 AI 接管"
+                    className="p-1 rounded-full bg-red-600/80 hover:bg-red-500 text-white transition shadow ml-1 cursor-pointer"
+                  >
+                    <UserMinus className="w-3 h-3" />
+                  </button>
+                )}
               </div>
               {((currentTurn === leftPlayer.id && !isChoosingColor) || (isChoosingColor && colorChoosingPlayerIndex === leftPlayer.id)) && !isDealing && !isContinuousDrawing && gameState?.gameStatus !== 'game_over' && (
                 <TurnTimerCircle turnStartTime={turnStartTime} duration={turnDuration || (isChoosingColor ? 6 : 15)} />
@@ -969,6 +1012,26 @@ export function GameTableView({
                   <span className="px-1.5 py-0.5 rounded-full bg-red-600 text-yellow-300 font-black text-[9px] shadow animate-pulse">
                     UNO!
                   </span>
+                )}
+                {rightPlayer.timeoutCount > 0 && (
+                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-amber-500/20 text-amber-300 font-extrabold border border-amber-500/40" title="超時累積次數 (達 2 次將由 AI 接管)">
+                    ⏰ {rightPlayer.timeoutCount}/2
+                  </span>
+                )}
+                {isHost && !rightPlayer.isHost && !rightPlayer.isAi && onKickPlayer && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (window.confirm(`確定要將【${rightPlayer.name}】移出牌局並轉由 AI 接管嗎？`)) {
+                        onKickPlayer(rightPlayer.id);
+                      }
+                    }}
+                    title="踢除此玩家並轉由 AI 接管"
+                    className="p-1 rounded-full bg-red-600/80 hover:bg-red-500 text-white transition shadow ml-1 cursor-pointer"
+                  >
+                    <UserMinus className="w-3 h-3" />
+                  </button>
                 )}
               </div>
             </div>
@@ -1144,6 +1207,11 @@ export function GameTableView({
                 {isChoosingColor && colorChoosingPlayerIndex === myIndex && (
                   <span className="px-2 py-0.5 rounded-full bg-purple-600 text-white font-black text-[10px] shadow-lg animate-pulse">
                     選色階段 (6s)
+                  </span>
+                )}
+                {!isHost && myPlayer.timeoutCount > 0 && (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-600/90 text-yellow-300 font-extrabold border border-yellow-300 shadow animate-pulse" title="注意！本局超時累計 2 次將被移出並由 AI 接管">
+                    ⚠️ 超時 {myPlayer.timeoutCount}/2
                   </span>
                 )}
               </div>

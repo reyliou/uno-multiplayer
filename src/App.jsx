@@ -155,6 +155,12 @@ export default function App() {
     p2pNetwork.swapSlots(idxA, idxB);
   };
 
+  // Kick player (Host only)
+  const handleKickPlayer = (slotIndex, reason = '房主已將你移出房間！') => {
+    if (!isHost) return;
+    p2pNetwork.kickPlayer(slotIndex, reason);
+  };
+
   // Leave or disband room
   const handleLeaveRoom = () => {
     if (isHost) {
@@ -268,6 +274,7 @@ export default function App() {
           onSetGameMode={handleSetGameMode}
           onSetFfaCount={handleSetFfaCount}
           onSwapSlots={handleSwapSlots}
+          onKickPlayer={handleKickPlayer}
           onStartGame={handleStartGame}
           onLeaveRoom={handleLeaveRoom}
         />
@@ -285,6 +292,7 @@ export default function App() {
           onCallUno={handleCallUno}
           onChallengeUno={handleChallengeUno}
           onChallengeWildDraw4={handleChallengeWildDraw4}
+          onKickPlayer={handleKickPlayer}
           onLeaveRoom={handleLeaveRoom}
         />
       )}

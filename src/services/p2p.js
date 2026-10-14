@@ -1,4 +1,4 @@
-// p2p.js - WebRTC Host-Authoritative P2P Networking with 2v2 Team Mode & Slot Management
+// p2p.js - WebRTC Host-Authoritative P2P Networking with Kick & 2-Strike Timeout AI Takeover
 import Peer from 'peerjs';
 import { UnoEngine } from '../game/unoEngine';
 import { UnoAI } from '../game/unoAi';
@@ -57,7 +57,6 @@ export class P2PNetwork {
       clearTimeout(this.lobbyIdleTimer);
       this.lobbyIdleTimer = null;
     }
-    // Auto-disband room after 15 minutes of idle in lobby
     if (this.isHost && !this.gameStarted) {
       this.lobbyIdleTimer = setTimeout(() => {
         const msg = '房間在大廳閒置超過 15 分鐘無操作，系統已自動解散房間！';
@@ -196,20 +195,107 @@ export class P2PNetwork {
 
     if (!this.gameStarted) {
       if (this.lobbyPlayers[slotIndex]) {
-        this.lobbyPlayers[slotIndex].name = `電腦 ${slotIndex}`;
-        this.lobbyPlayers[slotIndex].isAi = true;
+        this.lobbyPlayers[slotIndex].name = `開放玩家加入...`;
+        this.lobbyPlayers[slotIndex].isAi = false;
         this.lobbyPlayers[slotIndex].peerId = null;
         this.broadcastLobbyUpdate();
       }
     } else {
+      if (this.lobbyPlayers[slotIndex]) {
+        this.lobbyPlayers[slotIndex].isAi = true;
+        this.lobbyPlayers[slotIndex].peerId = null;
+      }
       if (this.engine && this.engine.players[slotIndex]) {
         this.engine.players[slotIndex].isAi = true;
-        this.engine.players[slotIndex].name = `${this.engine.players[slotIndex].name} (AI 託管)`;
-        this.engine.addLog(`⚠️ 玩家 ${guestInfo.name} 斷線，已自動切換為 AI 電腦託管！`);
+        this.engine.players[slotIndex].peerId = null;
+        if (!this.engine.players[slotIndex].name.includes('AI')) {
+          this.engine.players[slotIndex].name = `${guestInfo.name} (AI 接管)`;
+        }
+        this.engine.addLog(`⚠️ 玩家【${guestInfo.name}】斷線，已自動切換為 AI 電腦接管！`);
         this.broadcastGameState();
         this.checkAiTurn();
       }
     }
+  }
+
+  // Host Kicks Player (Works in both Lobby and Active Game!)
+  kickPlayer(slotIndex, reason = '你已被房主移出房間！', convertToOpenInLobby = true) {
+    if (!this.isHost) return { success: false };
+    const hostIdx = this.getHostIndex();
+    if (slotIndex === hostIdx) return { success: false, reason: '不能踢除房主自己！' };
+
+    const lobbySlot = this.lobbyPlayers[slotIndex];
+    const enginePlayer = this.engine && this.engine.players ? this.engine.players[slotIndex] : null;
+
+    // Find active peer connection by slotIndex
+    let targetPeerId = lobbySlot?.peerId || enginePlayer?.peerId || null;
+    if (!targetPeerId || targetPeerId === 'host') {
+      for (const [pId, gInfo] of this.guestConns.entries()) {
+        if (gInfo.slotIndex === slotIndex) {
+          targetPeerId = pId;
+          break;
+        }
+      }
+    }
+
+    const kickedName = enginePlayer?.name || lobbySlot?.name || `玩家 ${slotIndex + 1}`;
+
+    if (targetPeerId && this.guestConns.has(targetPeerId)) {
+      const guest = this.guestConns.get(targetPeerId);
+      // Remove from map BEFORE closing so handleGuestDisconnect doesn't double-log
+      this.guestConns.delete(targetPeerId);
+      if (guest && guest.conn) {
+        try {
+          guest.conn.send({ type: 'KICKED', reason });
+          setTimeout(() => {
+            try { guest.conn.close(); } catch {}
+          }, 120);
+        } catch (e) {
+          console.warn('Error sending kick packet:', e);
+        }
+      }
+    }
+
+    if (!this.gameStarted) {
+      if (lobbySlot) {
+        if (convertToOpenInLobby) {
+          lobbySlot.isAi = false;
+          lobbySlot.name = '開放玩家加入...';
+          lobbySlot.peerId = null;
+        } else {
+          lobbySlot.isAi = true;
+          lobbySlot.name = `電腦 ${slotIndex}`;
+          lobbySlot.peerId = null;
+        }
+      }
+      this.broadcastLobbyUpdate();
+    } else {
+      if (lobbySlot) {
+        lobbySlot.isAi = true;
+        lobbySlot.peerId = null;
+        lobbySlot.name = `電腦 ${slotIndex}`;
+      }
+      if (enginePlayer) {
+        const cleanName = kickedName.replace(/ \(AI 接管\)$/g, '');
+        enginePlayer.isAi = true;
+        enginePlayer.peerId = null;
+        enginePlayer.name = `${cleanName} (AI 接管)`;
+        this.engine.addLog(`🚫 【${cleanName}】已被移出牌局 (${reason})，由 AI 電腦自動接管！`);
+
+        // If the kicked player was in the middle of 6s color selection, let AI pick immediately!
+        if (this.engine.isChoosingColor && this.engine.colorChoosingPlayerIndex === slotIndex) {
+          const autoColor = this.engine.getBestColorForPlayer(slotIndex);
+          this.engine.confirmWildColor(slotIndex, autoColor);
+        }
+
+        soundManager.playPenalty();
+        this.broadcastSoundEvent('penalty');
+        this.broadcastGameState();
+        this.checkAiTurn();
+      }
+    }
+
+    return { success: true, kickedName };
   }
 
   handleHostData(conn, packet) {
@@ -220,9 +306,9 @@ export class P2PNetwork {
         const guestName = (packet.name || '訪客').trim();
         
         // Find empty slot (either open "待加入..." or AI bot)
-        let targetSlotIdx = this.lobbyPlayers.findIndex((p, idx) => idx > 0 && !p.isAi && !p.peerId);
+        let targetSlotIdx = this.lobbyPlayers.findIndex((p, idx) => !p.isHost && !p.isAi && !p.peerId);
         if (targetSlotIdx === -1) {
-          targetSlotIdx = this.lobbyPlayers.findIndex((p, idx) => idx > 0 && p.isAi);
+          targetSlotIdx = this.lobbyPlayers.findIndex((p, idx) => !p.isHost && p.isAi);
         }
 
         if (targetSlotIdx === -1) {
@@ -325,25 +411,21 @@ export class P2PNetwork {
           return;
         }
 
-        // Draw starts: cancel turn timeout timer!
         if (this.turnTimeoutTimer) {
           clearTimeout(this.turnTimeoutTimer);
           this.turnTimeoutTimer = null;
         }
 
-        // Active penalty pool: draw penalty cards one by one
         if (this.engine.stackedDrawCount > 0) {
           this.executePenaltyDraw(guest.slotIndex);
           break;
         }
 
-        // Voluntary draw can only be done ONCE per turn
         if (this.engine.hasDrawnThisTurn) {
           conn.send({ type: 'ACTION_FAILED', reason: '本回合已經主動抽過牌了！' });
           break;
         }
 
-        // If continuous drawing rule is active:
         if (this.drawRule === 'draw_until_playable') {
           this.executeContinuousDraw(guest.slotIndex);
           break;
@@ -356,7 +438,6 @@ export class P2PNetwork {
           this.broadcastGameState();
 
           if (!res.canPlay) {
-            // Cannot play: wait 750ms (300ms flight + 450ms natural pause) before advancing turn!
             this.isContinuousDrawing = true;
             setTimeout(() => {
               this.isContinuousDrawing = false;
@@ -366,7 +447,6 @@ export class P2PNetwork {
               this.checkAiTurn();
             }, 750);
           } else {
-            // Playable card drawn: wait 380ms for flight to land before starting 15s timer!
             this.isContinuousDrawing = true;
             setTimeout(() => {
               this.isContinuousDrawing = false;
@@ -436,7 +516,6 @@ export class P2PNetwork {
           soundManager.playPenalty();
           this.broadcastSoundEvent('penalty');
           this.broadcastGameState();
-          // 等待質疑罰抽的飛牌動畫全部落地後才輪到下一家行動
           const drawnCount = res.penalty || Math.max(4, res.priorCount || 4);
           const animWait = drawnCount * 200 + 650;
           this.isContinuousDrawing = true;
@@ -455,7 +534,6 @@ export class P2PNetwork {
     }
   }
 
-  // Toggle Game Mode between 'ffa' and '2v2' (Host only)
   setGameMode(mode) {
     if (!this.isHost || this.gameStarted) return;
     this.gameMode = mode;
@@ -463,7 +541,6 @@ export class P2PNetwork {
     this.broadcastLobbyUpdate();
   }
 
-  // Set Player Count in FFA Mode: 2, 3, or 4 (Host only)
   setFfaPlayerCount(count) {
     if (!this.isHost || this.gameStarted || this.gameMode === '2v2') return;
     const targetCount = Math.max(2, Math.min(4, count));
@@ -481,16 +558,10 @@ export class P2PNetwork {
         });
       }
     } else {
-      // Shrinking: kick guests in removed slots
       for (let i = targetCount; i < this.lobbyPlayers.length; i++) {
         const p = this.lobbyPlayers[i];
-        if (p.peerId) {
-          const guest = this.guestConns.get(p.peerId);
-          if (guest && guest.conn) {
-            guest.conn.send({ type: 'KICKED', reason: '房主縮減人數' });
-            guest.conn.close();
-          }
-          this.guestConns.delete(p.peerId);
+        if (p.peerId && p.peerId !== 'host') {
+          this.kickPlayer(i, '房主縮減了房間人數！');
         }
       }
       this.lobbyPlayers = this.lobbyPlayers.slice(0, targetCount);
@@ -499,7 +570,6 @@ export class P2PNetwork {
     this.broadcastLobbyUpdate();
   }
 
-  // Swap two slots (Host only, crucial for 2v2 teammate configuration!)
   swapSlots(idxA, idxB) {
     if (!this.isHost || this.gameStarted) return;
     if (idxA === idxB || !this.lobbyPlayers[idxA] || !this.lobbyPlayers[idxB]) return;
@@ -507,7 +577,6 @@ export class P2PNetwork {
     const pA = { ...this.lobbyPlayers[idxA] };
     const pB = { ...this.lobbyPlayers[idxB] };
 
-    // Swap slots, keeping their respective slot id and team attributes
     this.lobbyPlayers[idxA] = {
       ...pB,
       id: idxA,
@@ -526,7 +595,6 @@ export class P2PNetwork {
       partnerIdx: this.gameMode === '2v2' ? (idxB + 2) % 4 : null
     };
 
-    // Update guestConns mappings
     if (pA.peerId && this.guestConns.has(pA.peerId)) {
       this.guestConns.get(pA.peerId).slotIndex = idxB;
     }
@@ -544,23 +612,14 @@ export class P2PNetwork {
     if (!p) return;
 
     if (!p.isAi && p.peerId) {
-      // Kick human guest and turn into Bot
-      const guest = this.guestConns.get(p.peerId);
-      if (guest && guest.conn) {
-        guest.conn.send({ type: 'KICKED', reason: '已被房主移除！' });
-        guest.conn.close();
-      }
-      this.guestConns.delete(p.peerId);
-      p.isAi = true;
-      p.name = `電腦 ${slotIndex}`;
-      p.peerId = null;
+      // If occupied by a human guest, kick them and set to AI
+      this.kickPlayer(slotIndex, '房主已將該座位切換為電腦 AI！', false);
+      return;
     } else if (p.isAi) {
-      // Switch from Bot to Open for Human
       p.isAi = false;
       p.name = `開放玩家加入...`;
       p.peerId = null;
     } else {
-      // Switch from Open back to Bot
       p.isAi = true;
       p.name = `電腦 ${slotIndex}`;
       p.peerId = null;
@@ -593,11 +652,9 @@ export class P2PNetwork {
     this.broadcastLobbyUpdate();
   }
 
-  // Start Multiplayer Game (Host only)
   startGame() {
     if (!this.isHost || this.gameStarted) return;
 
-    // Fill any remaining open slots with AI Bots
     this.lobbyPlayers.forEach((p, idx) => {
       if (!p.peerId && !p.isHost && !p.isAi) {
         p.isAi = true;
@@ -611,7 +668,6 @@ export class P2PNetwork {
       this.lobbyIdleTimer = null;
     }
 
-    // Create authoritative engine with 2v2 support & custom rules
     this.engine = new UnoEngine(
       this.lobbyPlayers.length,
       this.lobbyPlayers,
@@ -625,10 +681,8 @@ export class P2PNetwork {
     );
     this.ai = new UnoAI(this.engine);
 
-    // Initial game state has isDealing = true
     this.broadcastGameState();
 
-    // Wait 2200ms for opening deal animation to fully complete before starting first turn!
     if (this.dealTimer) {
       clearTimeout(this.dealTimer);
       this.dealTimer = null;
@@ -656,7 +710,6 @@ export class P2PNetwork {
       this.engine.isMatchOver = false;
       this.engine.matchWinner = null;
     } else {
-      // Sync latest scores from engine to lobbyPlayers
       if (this.engine.players) {
         this.engine.players.forEach(ep => {
           const lp = this.lobbyPlayers.find(p => p.id === ep.id);
@@ -665,10 +718,11 @@ export class P2PNetwork {
       }
     }
 
+    // Update engine customPlayers reference so kicked/AI-converted seats stay AI in next round
+    this.engine.customPlayers = this.lobbyPlayers;
     this.engine.reset();
     this.broadcastGameState();
 
-    // Wait 2200ms for opening deal animation to fully complete before starting round
     if (this.dealTimer) {
       clearTimeout(this.dealTimer);
       this.dealTimer = null;
@@ -747,7 +801,6 @@ export class P2PNetwork {
       return;
     }
 
-    // Color Selection Phase: 6 seconds timeout!
     if (this.engine.isChoosingColor) {
       const choosingIdx = this.engine.colorChoosingPlayerIndex;
       const choosingPlayer = this.engine.players[choosingIdx];
@@ -763,7 +816,6 @@ export class P2PNetwork {
     const curPlayer = this.engine.players[curIdx];
     if (!curPlayer) return;
 
-    // AI operates on quick aiTimer (800-1200ms)
     if (!curPlayer.isAi) {
       this.turnTimeoutTimer = setTimeout(() => {
         this.handleTurnTimeout(curIdx);
@@ -771,18 +823,41 @@ export class P2PNetwork {
     }
   }
 
+  // Helper: Increment guest timeout counter and check if they reached 2 strikes
+  recordPlayerTimeoutStrike(playerIndex) {
+    if (!this.engine) return false;
+    const player = this.engine.players[playerIndex];
+    const hostIdx = this.getHostIndex();
+    if (!player || player.isAi || playerIndex === hostIdx || player.isHost) {
+      return false; // Host and AI are exempt from auto-kick
+    }
+    player.timeoutCount = (player.timeoutCount || 0) + 1;
+    return player.timeoutCount >= 2;
+  }
+
   handleColorTimeout(playerIndex) {
     if (!this.isHost || !this.engine || !this.engine.isChoosingColor) return;
     if (this.engine.colorChoosingPlayerIndex !== playerIndex) return;
 
     const player = this.engine.players[playerIndex];
+    const shouldKick = this.recordPlayerTimeoutStrike(playerIndex);
+    const strikeTag = (!player.isHost && playerIndex !== this.getHostIndex())
+      ? ` (本局累計超時 ${player.timeoutCount}/2 次)`
+      : '';
+
     const autoColor = this.engine.getBestColorForPlayer(playerIndex);
-    this.engine.addLog(`⏰ 【${player?.name || '玩家'}】選色超時 (6 秒)，系統自動為其指定【${this.engine.colorNames[autoColor]}】！`);
+    this.engine.addLog(`⏰ 【${player?.name || '玩家'}】選色超時 (6 秒)，系統自動指定【${this.engine.colorNames[autoColor]}】！${strikeTag}`);
 
     const res = this.engine.confirmWildColor(playerIndex, autoColor);
     if (res.success) {
       soundManager.playWild();
       this.broadcastSoundEvent('wild');
+
+      if (shouldKick) {
+        this.kickPlayer(playerIndex, '單局思考/選色超時累計達 2 次，系統已自動將你移出並由 AI 接管！');
+        return;
+      }
+
       this.broadcastGameState();
       this.checkAiTurn();
     }
@@ -795,17 +870,31 @@ export class P2PNetwork {
     const player = this.engine.players[playerIndex];
     if (!player) return;
 
-    // 1. If player was facing stacked penalty, execute penalty draw
+    const shouldKick = this.recordPlayerTimeoutStrike(playerIndex);
+    const strikeTag = (!player.isHost && playerIndex !== this.getHostIndex())
+      ? ` (本局累計超時 ${player.timeoutCount}/2 次)`
+      : '';
+
+    // 1. If player was facing stacked penalty, execute penalty draw then kick if 2 strikes
     if (this.engine.stackedDrawCount > 0) {
-      this.executePenaltyDraw(playerIndex);
+      this.engine.addLog(`⏰ 【${player.name}】思考超時 (15 秒)，系統自動承受罰抽！${strikeTag}`);
+      this.executePenaltyDraw(playerIndex, () => {
+        if (shouldKick) {
+          this.kickPlayer(playerIndex, '單局思考超時累計達 2 次，系統已自動將你移出並由 AI 接管！');
+        }
+      });
       return;
     }
 
     // 2. If player has already drawn this turn, auto-pass
     if (this.engine.hasDrawnThisTurn) {
-      this.engine.addLog(`⏰ 【${player.name}】思考超時 (15 秒)，系統自動過牌！`);
+      this.engine.addLog(`⏰ 【${player.name}】思考超時 (15 秒)，系統自動過牌！${strikeTag}`);
       const passRes = this.engine.passTurn(playerIndex);
       if (passRes.success) {
+        if (shouldKick) {
+          this.kickPlayer(playerIndex, '單局思考超時累計達 2 次，系統已自動將你移出並由 AI 接管！');
+          return;
+        }
         this.broadcastGameState();
         this.checkAiTurn();
       }
@@ -821,11 +910,17 @@ export class P2PNetwork {
       player.pendingUnoCall = false;
     }
 
-    this.engine.addLog(`⏰ 【${player.name}】思考超時 (15 秒)，系統自動抽一張牌並過牌！`);
+    this.engine.addLog(`⏰ 【${player.name}】思考超時 (15 秒)，系統自動抽一張牌並過牌！${strikeTag}`);
     soundManager.playDraw();
     this.broadcastSoundEvent('draw');
 
     this.engine.advanceTurn(1);
+
+    if (shouldKick) {
+      this.kickPlayer(playerIndex, '單局思考超時累計達 2 次，系統已自動將你移出並由 AI 接管！');
+      return;
+    }
+
     this.broadcastGameState();
     this.checkAiTurn();
   }
@@ -977,7 +1072,6 @@ export class P2PNetwork {
     }
   }
 
-  // Continuous one-by-one drawing sequence
   executeContinuousDraw(playerIndex, onComplete) {
     if (!this.isHost || !this.engine) return;
     if (this.engine.currentTurn !== playerIndex) return;
@@ -1009,12 +1103,10 @@ export class P2PNetwork {
       drawnCards.push(res.card);
       this.engine.drawingStepCount = drawnCards.length;
 
-      // Broadcast single card arrival so everyone sees this card fly & hand increment
       this.broadcastSoundEvent('draw');
       soundManager.playDraw();
       this.broadcastGameState();
 
-      // Check if the newly drawn card is playable
       if (res.canPlay || drawnCards.length >= maxLimit || (this.engine.drawPile.length === 0 && this.engine.discardPile.length <= 1)) {
         setTimeout(() => {
           if (!this.engine) return;
@@ -1025,7 +1117,6 @@ export class P2PNetwork {
           if (onComplete) onComplete(finalRes);
         }, 380);
       } else {
-        // Draw next card with delay so each card flies rhythmically one by one
         this.continuousDrawTimer = setTimeout(() => {
           drawStep();
         }, 420);
@@ -1035,7 +1126,6 @@ export class P2PNetwork {
     drawStep();
   }
 
-  // Penalty draw sequence: deals each penalty card one by one with visible flight
   executePenaltyDraw(playerIndex, onComplete) {
     if (!this.isHost || !this.engine) return;
     if (this.isContinuousDrawing) return;
@@ -1043,7 +1133,6 @@ export class P2PNetwork {
     const countToDraw = this.engine.stackedDrawCount;
     if (countToDraw <= 0) return;
 
-    // 抽牌期間立即暫停回合超時計時器，避免罰抽張數過多時被判定超時
     if (this.turnTimeoutTimer) {
       clearTimeout(this.turnTimeoutTimer);
       this.turnTimeoutTimer = null;
@@ -1078,7 +1167,6 @@ export class P2PNetwork {
       this.broadcastGameState();
 
       if (drawn >= countToDraw) {
-        // 最後一張罰抽牌發出後，等待 950ms（飛行 300ms + 落地停頓 650ms）才結束回合並切換下一位玩家！
         this.continuousDrawTimer = setTimeout(() => {
           if (!this.engine) return;
           this.engine.finishPenaltyDraw(playerIndex, countToDraw);
@@ -1090,7 +1178,6 @@ export class P2PNetwork {
           if (onComplete) onComplete({ success: true, count: countToDraw });
         }, 950);
       } else {
-        // 每張罰抽間隔 340ms（大於單張飛行 300ms），確保前一張落地才飛下一張
         this.continuousDrawTimer = setTimeout(() => {
           step();
         }, 340);
@@ -1118,7 +1205,6 @@ export class P2PNetwork {
     return idx !== -1 ? idx : 0;
   }
 
-  // Host local player actions
   hostPlayCard(cardId, chosenColor, calledUno) {
     if (!this.isHost || !this.engine || this.engine.isDealing) return { success: false, reason: '開局發牌中，尚未能出牌' };
     if (this.isContinuousDrawing) return { success: false, reason: '正在抽牌中' };
@@ -1167,24 +1253,20 @@ export class P2PNetwork {
     const hostIdx = this.getHostIndex();
     if (this.engine.currentTurn !== hostIdx) return { success: false, reason: '不是你的回合！' };
 
-    // Drawing starts: CANNOT be idle time!
     if (this.turnTimeoutTimer) {
       clearTimeout(this.turnTimeoutTimer);
       this.turnTimeoutTimer = null;
     }
 
-    // Active penalty pool: draw penalty cards one by one
     if (this.engine.stackedDrawCount > 0) {
       this.executePenaltyDraw(hostIdx);
       return { success: true, penalty: true };
     }
 
-    // Voluntary draw can only be done ONCE per turn
     if (this.engine.hasDrawnThisTurn) {
       return { success: false, reason: '本回合已經主動抽過牌了！' };
     }
 
-    // If continuous drawing rule is active:
     if (this.drawRule === 'draw_until_playable') {
       this.executeContinuousDraw(hostIdx);
       return { success: true, continuous: true };
@@ -1197,7 +1279,6 @@ export class P2PNetwork {
       this.broadcastGameState();
 
       if (!res.canPlay) {
-        // Cannot play: wait 750ms before advancing turn to next player!
         this.isContinuousDrawing = true;
         setTimeout(() => {
           this.isContinuousDrawing = false;
@@ -1207,7 +1288,6 @@ export class P2PNetwork {
           this.checkAiTurn();
         }, 750);
       } else {
-        // Playable card drawn: wait 380ms for card flight to reach hand before starting 15s timer!
         this.isContinuousDrawing = true;
         setTimeout(() => {
           this.isContinuousDrawing = false;
@@ -1276,7 +1356,6 @@ export class P2PNetwork {
     return res;
   }
 
-  // Broadcasts
   broadcastLobbyUpdate() {
     this.resetLobbyIdleTimer();
     const data = {
@@ -1373,9 +1452,9 @@ export class P2PNetwork {
 
       this.hostConn.on('close', () => {
         if (this.onRoomDisbanded) {
-          this.onRoomDisbanded('房主已離開或斷線，房間已自動解散！');
+          this.onRoomDisbanded('與房主的連線已中斷，已返回首頁！');
         } else if (this.onError) {
-          this.onError('與房主之連線已中斷，房間已解散！');
+          this.onError('與房主之連線已中斷！');
         }
         if (this.onConnectionStatus) this.onConnectionStatus({ status: 'disconnected', isHost: false });
         this.disconnect();
@@ -1398,13 +1477,20 @@ export class P2PNetwork {
 
     switch (packet.type) {
       case 'ROOM_DISBANDED':
-        if (this.onRoomDisbanded) {
-          this.onRoomDisbanded(packet.reason || '房主已解散房間！');
-        } else if (this.onError) {
-          this.onError(packet.reason || '房主已解散房間！');
-        }
+      case 'JOIN_REJECTED':
+      case 'KICKED': {
+        const msg = packet.reason || (packet.type === 'KICKED' ? '你已被移出房間！' : '房主已解散房間！');
+        // Clear callback before disconnect so close handler doesn't overwrite our specific kick reason
+        const disbandCb = this.onRoomDisbanded;
         this.disconnect();
+        if (disbandCb) {
+          disbandCb(msg);
+        } else if (this.onError) {
+          this.onError(msg);
+        }
         break;
+      }
+
       case 'JOIN_ACCEPTED':
         this.mySlotIndex = packet.slotIndex;
         this.gameMode = packet.gameMode || 'ffa';
@@ -1412,12 +1498,6 @@ export class P2PNetwork {
         if (packet.allowChallengeWildDraw4 !== undefined) this.allowChallengeWildDraw4 = packet.allowChallengeWildDraw4;
         this.targetScore = packet.targetScore !== undefined ? packet.targetScore : 500;
         this.drawRule = packet.drawRule || 'draw_one';
-        break;
-
-      case 'JOIN_REJECTED':
-      case 'KICKED':
-        if (this.onError) this.onError(packet.reason || '連線被拒絕');
-        this.disconnect();
         break;
 
       case 'LOBBY_UPDATE':
@@ -1467,7 +1547,6 @@ export class P2PNetwork {
     }
   }
 
-  // Guest actions sent to Host
   clientPlayCard(cardId, chosenColor, calledUno) {
     if (!this.hostConn || !this.hostConn.open) return;
     this.hostConn.send({
@@ -1535,6 +1614,7 @@ export class P2PNetwork {
       this.turnTimeoutTimer = null;
     }
     if (this.hostConn) {
+      this.hostConn.onclose = null;
       this.hostConn.close();
       this.hostConn = null;
     }
