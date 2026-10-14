@@ -37,6 +37,7 @@ export class UnoEngine {
     this.hurryUpTurns = 0;
     this.explosiveActive = false;
     this.vanishingCardId = null;
+    this.pendingAdvanceStep = null;
 
     this.drawPile = this.generateDeck();
     this.shuffle(this.drawPile);
@@ -48,7 +49,7 @@ export class UnoEngine {
     this.lastWildDraw4Info = null; // Tracks info for +4 challenge
     this.pendingWildDraw4Info = null;
 
-    // Continuous drawing state
+    // Continuous drawing / effect animation lock state
     this.isContinuousDrawing = false;
     this.drawingPlayerIndex = null;
     this.drawingStepCount = 0;
@@ -125,7 +126,7 @@ export class UnoEngine {
   }
 
   // Steam UNO Rabbids: Remove temporary special card (Hurry Up, Explosive, Comin' Through, or Deflecting Shield)
-  // after its tabletop animation finishes so the previous top card remains exposed!
+  // after its tabletop animation finishes, AND only then advance the turn to the next player!
   vanishTopSpecialCard(cardId) {
     const idx = this.discardPile.findIndex(c => c.id === cardId);
     if (idx !== -1 && this.discardPile.length > 1) {
@@ -133,6 +134,14 @@ export class UnoEngine {
     }
     if (this.vanishingCardId === cardId) {
       this.vanishingCardId = null;
+    }
+    if (this.pendingAdvanceStep !== null && this.pendingAdvanceStep !== undefined) {
+      const step = this.pendingAdvanceStep;
+      this.pendingAdvanceStep = null;
+      this.hasDrawnThisTurn = false;
+      this.currentTurn = this.getNextTurnIndex(step);
+      this.turnStartTime = Date.now();
+      this.turnDuration = this.consumeTurnDuration();
     }
   }
 
@@ -365,6 +374,7 @@ export class UnoEngine {
   canPlayCard(card) {
     if (!card) return false;
     if (this.isChoosingColor) return false;
+    if (this.isContinuousDrawing) return false;
 
     if (this.stackedDrawCount > 0) {
       // In Rabbids mode, rabbids_wild_shield can ALWAYS be played to defend and deflect incoming stacked draw!
@@ -441,6 +451,9 @@ export class UnoEngine {
     }
     if (this.isChoosingColor) {
       return { success: false, reason: '正在等待選擇顏色中！' };
+    }
+    if (this.isContinuousDrawing) {
+      return { success: false, reason: '場上卡牌效果與動畫結算中，請稍候！' };
     }
     if (this.currentTurn !== playerIndex) {
       return { success: false, reason: '不是你的回合！' };
@@ -614,40 +627,30 @@ export class UnoEngine {
     }
 
     if (card.value === 'draw2') {
+      this.stackedDrawCount += 2;
+      this.stackedDrawType = 'draw2';
+      const nextVictim = this.players[this.getNextTurnIndex(1)];
+      nextStep = 1;
       if (this.allowStacking) {
-        this.stackedDrawCount += 2;
-        this.stackedDrawType = 'draw2';
-        const nextVictim = this.players[this.getNextTurnIndex(1)];
-        nextStep = 1;
         effectMsg += ` ⚡ +2 疊加！目前累積罰抽【+${this.stackedDrawCount} 張】！輪到 ${nextVictim.name}！`;
       } else {
-        const victim = this.getNextTurnIndex(1);
-        this.drawCardsForPlayer(victim, 2);
-        nextStep = 2;
-        effectMsg += ` 💥 ${this.players[victim].name} 強制抽 2 張牌並跳過出牌！`;
+        effectMsg += ` 💥 +2 罰抽牌！輪到 ${nextVictim.name} 承受 2 張罰抽！`;
       }
     } else if (card.value === 'wild_draw4') {
       if (this.pendingWildDraw4Info) {
         this.lastWildDraw4Info = this.pendingWildDraw4Info;
         this.pendingWildDraw4Info = null;
       }
+      this.stackedDrawCount += 4;
+      this.stackedDrawType = 'wild_draw4';
+      const nextVictim = this.players[this.getNextTurnIndex(1)];
+      nextStep = 1;
       if (this.allowStacking) {
-        this.stackedDrawCount += 4;
-        this.stackedDrawType = 'wild_draw4';
-        const nextVictim = this.players[this.getNextTurnIndex(1)];
-        nextStep = 1;
         effectMsg += ` 🔥 +4 萬用疊加！目前累積罰抽【+${this.stackedDrawCount} 張】！輪到 ${nextVictim.name}！`;
       } else if (this.allowChallengeWildDraw4) {
-        this.stackedDrawCount = 4;
-        this.stackedDrawType = 'wild_draw4';
-        const nextVictim = this.players[this.getNextTurnIndex(1)];
-        nextStep = 1;
         effectMsg += ` 🔥 +4 萬用牌！輪到 ${nextVictim.name}，可質疑出牌合法性或承受罰抽！`;
       } else {
-        const victim = this.getNextTurnIndex(1);
-        this.drawCardsForPlayer(victim, 4);
-        nextStep = 2;
-        effectMsg += ` 🔥 ${this.players[victim].name} 強制抽 4 張牌並跳過出牌！`;
+        effectMsg += ` 🔥 +4 萬用牌！輪到 ${nextVictim.name} 承受 4 張罰抽！`;
       }
     }
 
@@ -680,6 +683,7 @@ export class UnoEngine {
       effectMsg += ` 🚫 跳過 ${skippedPlayer.name} 的回合！`;
     } else if (card.value === 'reverse') {
       if (this.playerCount === 2) {
+        skippedPlayer = this.players[this.getNextTurnIndex(1)];
         nextStep = 2;
         effectMsg += ` 🔄 兩人局反轉牌視同跳過！`;
       } else {
@@ -702,6 +706,24 @@ export class UnoEngine {
     };
 
     this.hasDrawnThisTurn = false;
+
+    // CRITICAL FIX: If this is a vanishing Rabbids event card (Hurry Up, Explosive, Comin' Through, or Deflecting Shield),
+    // DO NOT advance currentTurn yet! Hold the turn until the effect waves & fade-out animation finish!
+    if (isVanishingRabbidsCard) {
+      this.pendingAdvanceStep = nextStep;
+      this.isContinuousDrawing = true;
+      this.turnStartTime = null;
+      return {
+        success: true,
+        card,
+        isVanishing: true,
+        effectMsg,
+        needsUnoGracePeriod,
+        stackedCount: this.stackedDrawCount,
+        nextPlayer: this.players[this.getNextTurnIndex(nextStep)]
+      };
+    }
+
     this.currentTurn = this.getNextTurnIndex(nextStep);
     this.turnStartTime = Date.now();
     this.turnDuration = this.consumeTurnDuration();
@@ -709,7 +731,7 @@ export class UnoEngine {
     return {
       success: true,
       card,
-      isVanishing: isVanishingRabbidsCard,
+      isVanishing: false,
       effectMsg,
       needsUnoGracePeriod,
       stackedCount: this.stackedDrawCount,
@@ -750,52 +772,23 @@ export class UnoEngine {
     let effectMsg = `指定顏色為【${this.colorNames[finalColor]}】！`;
     let nextStep = 1;
 
-    // Apply Rabbids DLC Special Effects after human player finishes choosing color
-    if (card.value === 'rabbids_hurry_up') {
-      this.hurryUpTurns = this.playerCount;
-      effectMsg += ` ⚡ 瘋狂快抽觸發！接下來 ${this.playerCount} 個回合每位玩家只有 3 秒思考時間！`;
-    } else if (card.value === 'rabbids_explosive') {
-      this.explosiveActive = true;
-      effectMsg += ` 💣 炸彈已安裝在牌堆上！下一位抽牌或承受罰抽的玩家將引爆炸彈 (額外 +4 張)！`;
-    } else if (card.value === 'rabbids_comin_through') {
-      this.players.forEach((p, idx) => {
-        if (idx !== playerIndex) {
-          this.drawCardsForPlayer(idx, 1);
-        }
-      });
-      effectMsg += ` 🌪️ 瘋狂借過！牌桌上所有其他玩家被迫各抽 1 張牌！`;
-    } else if (card.value === 'rabbids_wild_shield') {
-      if (this.stackedDrawCount > 0) {
-        const nextVictim = this.players[this.getNextTurnIndex(1)];
-        effectMsg += ` 🛡️ 兔兔盾牌反彈！將累積的【+${this.stackedDrawCount} 張】罰抽全數轉嫁給 ${nextVictim.name}！`;
-        nextStep = 1;
-      } else {
-        effectMsg += ` 🛡️ 兔兔盾牌安全防護！`;
-      }
-    }
-
-    if (card.value === 'wild_draw4') {
+    if (card.value === 'rabbids_wild_shield') {
+      effectMsg += ` 🛡️ 兔兔盾牌安全防護！`;
+    } else if (card.value === 'wild_draw4') {
       if (this.pendingWildDraw4Info) {
         this.lastWildDraw4Info = this.pendingWildDraw4Info;
         this.pendingWildDraw4Info = null;
       }
+      this.stackedDrawCount += 4;
+      this.stackedDrawType = 'wild_draw4';
+      const nextVictim = this.players[this.getNextTurnIndex(1)];
+      nextStep = 1;
       if (this.allowStacking) {
-        this.stackedDrawCount += 4;
-        this.stackedDrawType = 'wild_draw4';
-        const nextVictim = this.players[this.getNextTurnIndex(1)];
-        nextStep = 1;
         effectMsg += ` 🔥 +4 萬用疊加！目前累積罰抽【+${this.stackedDrawCount} 張】！輪到 ${nextVictim.name}！`;
       } else if (this.allowChallengeWildDraw4) {
-        this.stackedDrawCount = 4;
-        this.stackedDrawType = 'wild_draw4';
-        const nextVictim = this.players[this.getNextTurnIndex(1)];
-        nextStep = 1;
         effectMsg += ` 🔥 +4 萬用牌！輪到 ${nextVictim.name}，可質疑出牌合法性或承受罰抽！`;
       } else {
-        const victim = this.getNextTurnIndex(1);
-        this.drawCardsForPlayer(victim, 4);
-        nextStep = 2;
-        effectMsg += ` 🔥 ${this.players[victim].name} 強制抽 4 張牌並跳過出牌！`;
+        effectMsg += ` 🔥 +4 萬用牌！輪到 ${nextVictim.name} 承受 4 張罰抽！`;
       }
     }
 
@@ -830,6 +823,9 @@ export class UnoEngine {
     if (this.isChoosingColor) {
       return { success: false, reason: '正在等待選擇顏色中！' };
     }
+    if (this.isContinuousDrawing) {
+      return { success: false, reason: '場上卡牌效果與動畫結算中，請稍候！' };
+    }
     if (this.currentTurn !== playerIndex) {
       return { success: false, reason: '不是你的回合！' };
     }
@@ -847,7 +843,8 @@ export class UnoEngine {
       this.players[playerIndex].pendingUnoCall = false;
     }
 
-    const canPlay = this.canPlayCard(card);
+    // Official Steam Rule: If the Explosive Bomb detonated (+4 cards), your turn ends after drawing!
+    const canPlay = extraBombCards > 0 ? false : this.canPlayCard(card);
     this.addLog(`${this.players[playerIndex].name} 抽了一張牌。`);
 
     if (!canPlay) {
@@ -907,7 +904,7 @@ export class UnoEngine {
     const player = this.players[playerIndex];
     if (!player) return;
     this.hasDrawnThisTurn = false;
-    this.addLog(`💨 ${player.name} 抽牌後仍無法出牌，跳過回合！`);
+    this.addLog(`💨 ${player.name} 抽牌後結束回合！`);
     this.advanceTurn(1);
     this.lastAction = {
       type: 'draw_autopass',
@@ -925,7 +922,7 @@ export class UnoEngine {
     this.stackedDrawType = null;
     this.lastWildDraw4Info = null;
     this.hasDrawnThisTurn = false;
-    this.addLog(`💥 ${player.name} 無法疊牌，被迫承受累積罰抽【+${count} 張】！回合結束！`);
+    this.addLog(`💥 ${player.name} 承受累積罰抽【+${count} 張】完畢！回合結束！`);
     this.advanceTurn(1);
     this.lastAction = {
       type: 'penalty_finish',
@@ -945,8 +942,6 @@ export class UnoEngine {
     }
     const player = this.players[playerIndex];
     if (!player) return { success: false, reason: '玩家不存在' };
-
-    const extraBombCards = this.checkAndTriggerExplosive(playerIndex);
 
     const card = this.drawCardRaw();
     player.hand.push(card);
@@ -969,7 +964,6 @@ export class UnoEngine {
       success: true,
       card,
       canPlay,
-      extraBombCards,
       handCount: player.hand.length
     };
   }
@@ -1033,6 +1027,9 @@ export class UnoEngine {
     if (this.isChoosingColor) {
       return { success: false, reason: '正在等待選擇顏色中！' };
     }
+    if (this.isContinuousDrawing) {
+      return { success: false, reason: '正在結算動畫中！' };
+    }
     if (this.currentTurn !== playerIndex) {
       return { success: false, reason: '不是你的回合！' };
     }
@@ -1088,7 +1085,7 @@ export class UnoEngine {
   }
 
   challengeWildDraw4(challengerIndex) {
-    if (this.isDealing || this.isChoosingColor || this.gameStatus !== 'playing') {
+    if (this.isDealing || this.isChoosingColor || this.isContinuousDrawing || this.gameStatus !== 'playing') {
       return { success: false, reason: '目前無法進行質疑！' };
     }
     if (this.currentTurn !== challengerIndex) {
@@ -1222,8 +1219,8 @@ export class UnoEngine {
     if (card.value === 'wild_draw4') return `萬用 +4 罰抽牌 (Wild Draw 4)`;
     if (card.value === 'rabbids_hurry_up') return `瘋狂快抽 Hurry Up! (3秒限時)`;
     if (card.value === 'rabbids_explosive') return `瘋狂定時炸彈 Explosive (+4 Extra)`;
-    if (card.value === 'rabbids_comin_through') return `瘋狂借過 Comin' Through (全員抽1張)`;
-    if (card.value === 'rabbids_wild_shield') return `瘋狂兔兔盾牌 Wild Shield (反彈/防禦)`;
+    if (card.value === 'rabbids_comin_through') return `瘋狂借過 Comin' Through (兩波發牌)`;
+    if (card.value === 'rabbids_wild_shield') return `瘋狂兔兔盾牌 Wild Shield (防禦/變色)`;
     return `${colName} ${card.value}`;
   }
 
@@ -1348,6 +1345,7 @@ export class UnoEngine {
         this.stackedDrawType === 'wild_draw4' &&
         !this.isDealing &&
         !this.isChoosingColor &&
+        !this.isContinuousDrawing &&
         this.gameStatus === 'playing',
       lastWildDraw4PlayerName: this.lastWildDraw4Info ? this.lastWildDraw4Info.playerName : null,
       gameStatus: this.gameStatus,

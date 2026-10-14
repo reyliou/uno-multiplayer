@@ -195,7 +195,8 @@ export function GameTableView({
   } = gameState || {};
 
   const is2v2 = gameMode === '2v2';
-  const isMyTurn = currentTurn === myIndex;
+  // Only highlight and allow local play when NOT in the middle of an active effect/draw transition!
+  const isMyTurn = currentTurn === myIndex && !isContinuousDrawing && !isDealing;
 
   // Visually synchronized hand cards & opponent counts
   const [displayedHand, setDisplayedHand] = useState(myHand);
@@ -230,11 +231,7 @@ export function GameTableView({
     cardAnimationService.setDeckTheme(deckTheme);
   }, [deckTheme]);
 
-
-  // Render standing opponent cards:
-  // - Enlarged card dimensions (!w-[72px] !h-[108px] sm:!w-[84px] sm:!h-[126px])
-  // - Left & Right hands keep their table-edge diagonal trajectory, while each card face
-  //   angles inward toward the center of the table via 3D rotateY + depth scaling!
+  // Render standing opponent cards
   const renderOpponentCards = (count, side = 'top') => {
     const cardCount = typeof count === 'number' ? count : 1;
     const visualCount = Math.min(Math.max(cardCount, 1), 7);
@@ -246,11 +243,9 @@ export function GameTableView({
           style={{ width: '180px', height: '210px' }}
         >
           {Array.from({ length: visualCount }).map((_, idx) => {
-            // idx = 0 (top/far) -> idx = visualCount - 1 (bottom/near)
             const offset = idx - (visualCount - 1) / 2;
-            const tx = -offset * 14; //沿着左桌邊由右上往左下排隊
+            const tx = -offset * 14;
             const ty = offset * 20;
-            // 近大遠小透視縮放 (上方遠處 0.88 -> 下方近處 1.06)
             const depthScale = 0.96 + (offset / Math.max(visualCount, 1)) * 0.18;
 
             return (
@@ -283,11 +278,9 @@ export function GameTableView({
           style={{ width: '180px', height: '210px' }}
         >
           {Array.from({ length: visualCount }).map((_, idx) => {
-            // idx = 0 (top/far) -> idx = visualCount - 1 (bottom/near)
             const offset = idx - (visualCount - 1) / 2;
-            const tx = offset * 14; // 沿著右桌邊由左上往右下排隊
+            const tx = offset * 14;
             const ty = offset * 20;
-            // 近大遠小透視縮放 (上方遠處 0.88 -> 下方近處 1.06)
             const depthScale = 0.96 + (offset / Math.max(visualCount, 1)) * 0.18;
 
             return (
@@ -313,7 +306,6 @@ export function GameTableView({
       );
     }
 
-    // Top opponent (when in FFA mode): enlarged level horizontal row
     return (
       <div className="flex items-center justify-center -space-x-4 sm:-space-x-5 card-reflection">
         {Array.from({ length: visualCount }).map((_, idx) => (
@@ -347,7 +339,7 @@ export function GameTableView({
       showToast(`💥 無對應牌可疊！自動承受累積罰抽【+${stackedDrawCount} 張】...`);
       autoPenaltyTimerRef.current = setTimeout(() => {
         handleDrawWithAnimation();
-      }, 650);
+      }, 750);
       return () => {
         if (autoPenaltyTimerRef.current) {
           clearTimeout(autoPenaltyTimerRef.current);
@@ -443,7 +435,7 @@ export function GameTableView({
       hasAnimatedDealRef.current = false;
       if (wasDealingRef.current) {
         wasDealingRef.current = false;
-        if (isMyTurn) {
+        if (currentTurn === myIndex) {
           soundManager.playTurn();
         }
       }
@@ -478,19 +470,19 @@ export function GameTableView({
         } else if (lastAction.card.value === 'rabbids_comin_through') {
           soundManager.playWild();
           setRabbidsEventBanner(`🌪️ 【${lastAction.playerName}】發動瘋狂借過！第一波衝撞對手 -> 第二波全場發牌！`);
-          setTimeout(() => setRabbidsEventBanner(''), 2100);
+          setTimeout(() => setRabbidsEventBanner(''), 2500);
         } else if (lastAction.card.value === 'rabbids_explosive') {
           soundManager.playAction();
           setRabbidsEventBanner(`💣 【${lastAction.playerName}】在抽牌堆安裝了瘋狂定時炸彈 (+4)！`);
-          setTimeout(() => setRabbidsEventBanner(''), 1600);
+          setTimeout(() => setRabbidsEventBanner(''), 1800);
         } else if (lastAction.card.value === 'rabbids_hurry_up') {
           soundManager.playWild();
           setRabbidsEventBanner(`⚡ 【${lastAction.playerName}】啟動瘋狂快抽！全場進入 3 秒極限思考！`);
-          setTimeout(() => setRabbidsEventBanner(''), 1600);
+          setTimeout(() => setRabbidsEventBanner(''), 1800);
         } else if (lastAction.card.value === 'rabbids_wild_shield' && lastAction.isVanishing) {
           soundManager.playWild();
           setRabbidsEventBanner(`🛡️ 【${lastAction.playerName}】展開兔兔盾牌！完美抵銷所有累積罰抽！`);
-          setTimeout(() => setRabbidsEventBanner(''), 1600);
+          setTimeout(() => setRabbidsEventBanner(''), 1800);
         } else if (lastAction.card.value === 'reverse') {
           soundManager.playAction();
         } else if (['draw2', 'wild_draw4'].includes(lastAction.card.value)) {
@@ -500,7 +492,7 @@ export function GameTableView({
         }
       } else if (lastAction.type === 'draw_autopass') {
         if (lastAction.playerId === myIndex) {
-          showToast('💨 抽到的牌無法出，系統已自動跳過回合！');
+          showToast('💨 抽牌完畢，回合結束！');
         }
       }
     } else if (topCard && prevTopCardRef.current && prevTopCardRef.current.id !== topCard.id) {
@@ -528,7 +520,6 @@ export function GameTableView({
     }
 
     // For local player's hand:
-    // Use 160ms spacing only when multiple cards arrive in a single batch (for single step draws idx === 0 so delay is 0ms!)
     if (myHand.length < displayedHand.length) {
       setDisplayedHand(myHand);
     } else if (myHand.length > displayedHand.length) {
@@ -551,7 +542,7 @@ export function GameTableView({
               return [...prev, c];
             });
           }
-        }, idx * 160);
+        }, idx * 180);
       });
     }
 
@@ -581,7 +572,7 @@ export function GameTableView({
             } else {
               setDisplayedCounts(prev => ({ ...prev, [p.id]: p.cardCount }));
             }
-          }, k * 160);
+          }, k * 180);
         }
       }
     });
@@ -613,7 +604,7 @@ export function GameTableView({
       return;
     }
     if (isContinuousDrawing) {
-      showToast('正在連續抽牌中，請稍候...');
+      showToast('⏳ 場上效果與動畫正在結算中，請稍候...');
       return;
     }
     if (isChoosingColor) {
@@ -816,7 +807,7 @@ export function GameTableView({
                 className={`flex items-center gap-2.5 px-3.5 py-1 rounded-full border shadow-lg backdrop-blur-md transition-all duration-200 ${
                   skippedPlayerInfo && topPlayer.id === skippedPlayerInfo.playerId
                     ? 'skip-shake ring-4 ring-red-500 bg-red-950/90 border-red-400'
-                    : (((currentTurn === topPlayer.id && !isDealing) || (isChoosingColor && colorChoosingPlayerIndex === topPlayer.id)))
+                    : (((currentTurn === topPlayer.id && !isDealing && !isContinuousDrawing) || (isChoosingColor && colorChoosingPlayerIndex === topPlayer.id)))
                     ? 'active-turn-ring scale-105'
                     : 'bg-[#0a1c12]/95 border-white/20'
                 }`}
@@ -857,7 +848,7 @@ export function GameTableView({
                     <RotateCw className="w-2.5 h-2.5 animate-spin" />
                     抽牌中 ({drawingStepCount || 1})
                   </span>
-                ) : currentTurn === topPlayer.id && !skippedPlayerInfo && !isDealing ? (
+                ) : currentTurn === topPlayer.id && !skippedPlayerInfo && !isDealing && !isContinuousDrawing ? (
                   <span className="text-[10px] font-bold text-yellow-300 animate-pulse">
                     思考中
                   </span>
@@ -926,7 +917,7 @@ export function GameTableView({
           </div>
         )}
 
-        {/* 3. LEFT SEAT (Aligned with left perspective border, cards strictly level with horizontal table lines) */}
+        {/* 3. LEFT SEAT */}
         {leftPlayer && (
           <div
             ref={leftPlayerRef}
@@ -937,7 +928,7 @@ export function GameTableView({
                 className={`flex items-center gap-2 px-3 py-1.5 rounded-full border shadow-xl backdrop-blur-md transition-all duration-200 ${
                   skippedPlayerInfo && leftPlayer.id === skippedPlayerInfo.playerId
                     ? 'skip-shake ring-4 ring-red-500 bg-red-950/90 border-red-400'
-                    : (((currentTurn === leftPlayer.id && !isDealing) || (isChoosingColor && colorChoosingPlayerIndex === leftPlayer.id)))
+                    : (((currentTurn === leftPlayer.id && !isDealing && !isContinuousDrawing) || (isChoosingColor && colorChoosingPlayerIndex === leftPlayer.id)))
                     ? 'active-turn-ring scale-105'
                     : 'bg-[#0a1c12]/95 border-white/20'
                 }`}
@@ -1004,7 +995,7 @@ export function GameTableView({
           </div>
         )}
 
-        {/* 4. RIGHT SEAT (Aligned with right perspective border, cards strictly level with horizontal table lines) */}
+        {/* 4. RIGHT SEAT */}
         {rightPlayer && (
           <div
             ref={rightPlayerRef}
@@ -1018,7 +1009,7 @@ export function GameTableView({
                 className={`flex items-center gap-2 px-3 py-1.5 rounded-full border shadow-xl backdrop-blur-md transition-all duration-200 ${
                   skippedPlayerInfo && rightPlayer.id === skippedPlayerInfo.playerId
                     ? 'skip-shake ring-4 ring-red-500 bg-red-950/90 border-red-400'
-                    : (((currentTurn === rightPlayer.id && !isDealing) || (isChoosingColor && colorChoosingPlayerIndex === rightPlayer.id)))
+                    : (((currentTurn === rightPlayer.id && !isDealing && !isContinuousDrawing) || (isChoosingColor && colorChoosingPlayerIndex === rightPlayer.id)))
                     ? 'active-turn-ring scale-105'
                     : 'bg-[#0a1c12]/95 border-white/20'
                 }`}
@@ -1082,7 +1073,7 @@ export function GameTableView({
           </div>
         )}
 
-        {/* 5. CENTER TABLE PILES (Draw Pile & Discard Pile lying on the center of the table) */}
+        {/* 5. CENTER TABLE PILES */}
         <div className="relative z-10 -mt-12 flex flex-col items-center justify-center gap-3 pointer-events-auto">
           {rabbidsEventBanner && (
             <div className="absolute -top-14 left-1/2 -translate-x-1/2 z-50 px-5 py-1.5 rounded-full bg-gradient-to-r from-pink-600 via-amber-500 to-purple-600 border-2 border-yellow-200 text-white font-black text-xs sm:text-sm shadow-[0_0_25px_rgba(236,72,153,0.9)] animate-bounce flex items-center gap-1.5 whitespace-nowrap">
@@ -1122,7 +1113,7 @@ export function GameTableView({
                   onClick={isContinuousDrawing ? undefined : handleDrawWithAnimation}
                   title={
                     isContinuousDrawing
-                      ? '正在連續抽牌中...'
+                      ? '正在結算動畫中...'
                       : (hasDrawnThisTurn && stackedDrawCount === 0)
                       ? '本回合已抽過牌，請打出手牌或點擊過牌'
                       : '點擊抽一張牌'
@@ -1235,7 +1226,7 @@ export function GameTableView({
           </div>
         </div>
 
-        {/* 6. BOTTOM SEAT: HUMAN PLAYER CONTROLS & STRAIGHT LEVEL HAND (Positioned right on the bottom table edge) */}
+        {/* 6. BOTTOM SEAT: HUMAN PLAYER CONTROLS & STRAIGHT LEVEL HAND */}
         <div className="absolute bottom-4 sm:bottom-6 left-0 right-0 z-30 flex flex-col items-center pointer-events-auto">
 
           {/* Controls Bar */}
@@ -1246,7 +1237,7 @@ export function GameTableView({
                 className={`flex items-center gap-2.5 px-3.5 py-1.5 rounded-full border shadow-xl backdrop-blur-md transition-all duration-200 ${
                   skippedPlayerInfo && skippedPlayerInfo.playerId === myIndex
                     ? 'skip-shake ring-4 ring-red-500 bg-red-950/90 border-red-400'
-                    : (((isMyTurn && !isDealing) || (isChoosingColor && colorChoosingPlayerIndex === myIndex))) ? 'active-turn-ring scale-105' : 'bg-[#0a1c12]/95 border-white/20'
+                    : ((isMyTurn || (isChoosingColor && colorChoosingPlayerIndex === myIndex))) ? 'active-turn-ring scale-105' : 'bg-[#0a1c12]/95 border-white/20'
                 }`}
               >
                 <div className="w-8 h-8 rounded-full bg-[#1e3a2b] border border-white/20 flex items-center justify-center text-sm">
@@ -1298,6 +1289,11 @@ export function GameTableView({
                 <span className="text-xs text-amber-300 font-bold px-3.5 py-1.5 rounded-full bg-amber-500/15 border border-amber-400/30 flex items-center gap-1.5 animate-pulse">
                   <RotateCw className="w-3.5 h-3.5 animate-spin text-amber-400" />
                   <span>開局發牌中...</span>
+                </span>
+              ) : isContinuousDrawing ? (
+                <span className="text-xs text-sky-300 font-bold px-3.5 py-1.5 rounded-full bg-sky-950/80 border border-sky-400/40 flex items-center gap-1.5 animate-pulse">
+                  <RotateCw className="w-3.5 h-3.5 animate-spin text-sky-400" />
+                  <span>{drawingPlayerIndex !== null ? `發牌結算中 (${drawingStepCount || 1})...` : '特殊效果發動中...'}</span>
                 </span>
               ) : (
                 <>
@@ -1363,11 +1359,6 @@ export function GameTableView({
                       <div className="py-1.5 px-3.5 sm:px-4 rounded-full font-bold text-xs bg-red-950/90 border border-red-500/60 text-red-300 flex items-center gap-1.5 shadow-lg animate-pulse">
                         <span>自動承受罰抽 (+{stackedDrawCount})</span>
                       </div>
-                    ) : isContinuousDrawing && drawingPlayerIndex === myIndex ? (
-                      <div className="py-1.5 px-4 rounded-full font-extrabold text-xs shadow-lg bg-sky-900/90 border border-sky-400/50 text-sky-200 flex items-center gap-1.5 animate-pulse">
-                        <RotateCw className="w-3.5 h-3.5 animate-spin text-sky-300" />
-                        <span>連續抽牌中... (第 {drawingStepCount || 1} 張)</span>
-                      </div>
                     ) : (
                       <button
                         type="button"
@@ -1388,14 +1379,14 @@ export function GameTableView({
             </div>
           </div>
 
-          {/* Straight Level Hand Cards Resting Right on the Bottom Table Edge (No Fan Angle) */}
+          {/* Straight Level Hand Cards Resting Right on the Bottom Table Edge */}
           <div
             ref={myHandRef}
             className="w-full max-w-4xl px-4 pt-1 pb-1 overflow-visible flex items-center justify-center min-h-[125px]"
           >
             <div className="flex items-center justify-center -space-x-5 sm:-space-x-6 md:-space-x-7 overflow-visible transition-all">
               {handToDisplay.map((card, idx) => {
-                const isPlayable = !isDealing && isMyTurn && validCards.includes(card.id);
+                const isPlayable = isMyTurn && validCards.includes(card.id);
                 const translateY = isHandCollapsed ? 16 : (isMyTurn ? 0 : 8);
                 const scale = isMyTurn ? (isHandCollapsed ? 0.94 : 1) : 0.95;
 
@@ -1405,17 +1396,17 @@ export function GameTableView({
                     style={{
                       transform: `translateY(${translateY}px) scale(${scale})`,
                       transformOrigin: 'bottom center',
-                      filter: isDealing
+                      filter: (isDealing || isContinuousDrawing)
                         ? 'brightness(0.7) saturate(80%)'
                         : (isMyTurn ? 'brightness(1) saturate(100%)' : 'brightness(0.68) saturate(85%)'),
                       transitionProperty: 'transform, filter',
                       transitionDuration: '320ms',
                       transitionTimingFunction: 'cubic-bezier(0.34, 1.4, 0.64, 1)',
                       transitionDelay: isHandCollapsed ? '0ms' : `${idx * 20}ms`,
-                      pointerEvents: (isMyTurn && !isDealing) ? 'auto' : 'none'
+                      pointerEvents: isMyTurn ? 'auto' : 'none'
                     }}
                     className={`overflow-visible transition-transform duration-200 ${
-                      (isMyTurn && !isDealing) ? 'hover:z-40 hover:!-translate-y-5 cursor-pointer' : 'select-none'
+                      isMyTurn ? 'hover:z-40 hover:!-translate-y-5 cursor-pointer' : 'select-none'
                     }`}
                   >
                     <CardView deckTheme={gameState?.deckTheme || 'classic'}
