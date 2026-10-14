@@ -215,35 +215,43 @@ export function GameTableView({
   const myPlayer = players[myIndex] || { name: '你 (玩家)', cardCount: displayedHand.length };
 
   // Render standing opponent cards:
-  // Every single card stays 100% upright & level with the table's horizontal lines (rotate = 0deg),
-  // while the row steps cleanly along the left/right perspective table edge!
+  // - Enlarged card dimensions (!w-[72px] !h-[108px] sm:!w-[84px] sm:!h-[126px])
+  // - Left & Right hands keep their table-edge diagonal trajectory, while each card face
+  //   angles inward toward the center of the table via 3D rotateY + depth scaling!
   const renderOpponentCards = (count, side = 'top') => {
     const cardCount = typeof count === 'number' ? count : 1;
     const visualCount = Math.min(Math.max(cardCount, 1), 7);
 
     if (side === 'left') {
-      // Steps cleanly along the left perspective edge (top-right to bottom-left, each card strictly horizontal-level)
       return (
         <div
           className="relative flex items-center justify-center"
-          style={{ width: '136px', height: '148px' }}
+          style={{ width: '180px', height: '210px' }}
         >
           {Array.from({ length: visualCount }).map((_, idx) => {
-            // idx 0 is top-most (further back), idx (visualCount-1) is bottom-most (closer to viewer)
+            // idx = 0 (top/far) -> idx = visualCount - 1 (bottom/near)
             const offset = idx - (visualCount - 1) / 2;
-            const tx = -offset * 10.5; // shifts left as it goes down, matching left table border slope
-            const ty = offset * 14.5;  // steps down vertically
+            const tx = -offset * 14; //沿着左桌邊由右上往左下排隊
+            const ty = offset * 20;
+            // 近大遠小透視縮放 (上方遠處 0.88 -> 下方近處 1.06)
+            const depthScale = 0.96 + (offset / Math.max(visualCount, 1)) * 0.18;
+
             return (
               <div
                 key={idx}
                 style={{
                   position: 'absolute',
-                  transform: `translate(${tx}px, ${ty}px)`,
+                  transform: `translate(${tx}px, ${ty}px) perspective(520px) rotateY(42deg) rotateX(6deg) rotateZ(-8deg) scale(${depthScale})`,
+                  transformStyle: 'preserve-3d',
                   zIndex: idx + 1
                 }}
-                className="transition-all duration-200 drop-shadow-[0_8px_12px_rgba(0,0,0,0.75)] card-reflection"
+                className="transition-all duration-200 drop-shadow-[-8px_10px_14px_rgba(0,0,0,0.8)] card-reflection"
               >
-                <CardView isBack isSmall className="!w-13 !h-19 sm:!w-14 sm:!h-20" />
+                <CardView
+                  isBack
+                  isSmall
+                  className="!w-[72px] !h-[108px] sm:!w-[84px] sm:!h-[126px] !rounded-xl"
+                />
               </div>
             );
           })}
@@ -252,28 +260,35 @@ export function GameTableView({
     }
 
     if (side === 'right') {
-      // Steps cleanly along the right perspective edge (top-left to bottom-right, each card strictly horizontal-level)
       return (
         <div
           className="relative flex items-center justify-center"
-          style={{ width: '136px', height: '148px' }}
+          style={{ width: '180px', height: '210px' }}
         >
           {Array.from({ length: visualCount }).map((_, idx) => {
-            // idx 0 is top-most (further back), idx (visualCount-1) is bottom-most (closer to viewer)
+            // idx = 0 (top/far) -> idx = visualCount - 1 (bottom/near)
             const offset = idx - (visualCount - 1) / 2;
-            const tx = offset * 10.5; // shifts right as it goes down, matching right table border slope
-            const ty = offset * 14.5; // steps down vertically
+            const tx = offset * 14; // 沿著右桌邊由左上往右下排隊
+            const ty = offset * 20;
+            // 近大遠小透視縮放 (上方遠處 0.88 -> 下方近處 1.06)
+            const depthScale = 0.96 + (offset / Math.max(visualCount, 1)) * 0.18;
+
             return (
               <div
                 key={idx}
                 style={{
                   position: 'absolute',
-                  transform: `translate(${tx}px, ${ty}px)`,
+                  transform: `translate(${tx}px, ${ty}px) perspective(520px) rotateY(-42deg) rotateX(6deg) rotateZ(8deg) scale(${depthScale})`,
+                  transformStyle: 'preserve-3d',
                   zIndex: idx + 1
                 }}
-                className="transition-all duration-200 drop-shadow-[0_8px_12px_rgba(0,0,0,0.75)] card-reflection"
+                className="transition-all duration-200 drop-shadow-[8px_10px_14px_rgba(0,0,0,0.8)] card-reflection"
               >
-                <CardView isBack isSmall className="!w-13 !h-19 sm:!w-14 sm:!h-20" />
+                <CardView
+                  isBack
+                  isSmall
+                  className="!w-[72px] !h-[108px] sm:!w-[84px] sm:!h-[126px] !rounded-xl"
+                />
               </div>
             );
           })}
@@ -281,15 +296,19 @@ export function GameTableView({
       );
     }
 
-    // Top opponent: strictly level horizontal row
+    // Top opponent (when in FFA mode): enlarged level horizontal row
     return (
-      <div className="flex items-center justify-center -space-x-3.5 sm:-space-x-4 card-reflection">
+      <div className="flex items-center justify-center -space-x-4 sm:-space-x-5 card-reflection">
         {Array.from({ length: visualCount }).map((_, idx) => (
           <div
             key={idx}
-            className="transition-transform duration-150 drop-shadow-[0_8px_12px_rgba(0,0,0,0.65)]"
+            className="transition-transform duration-150 drop-shadow-[0_8px_14px_rgba(0,0,0,0.7)]"
           >
-            <CardView isBack isSmall className="!w-13 !h-19 sm:!w-15 sm:!h-22" />
+            <CardView
+              isBack
+              isSmall
+              className="!w-[64px] !h-[96px] sm:!w-[74px] sm:!h-[110px] !rounded-lg"
+            />
           </div>
         ))}
       </div>
@@ -830,7 +849,7 @@ export function GameTableView({
                       <CardView
                         card={c}
                         isSmall
-                        className="!w-14 !h-21 sm:!w-16 sm:!h-24 drop-shadow-[0_8px_16px_rgba(0,0,0,0.6)]"
+                        className="!w-[64px] !h-[96px] sm:!w-[74px] sm:!h-[110px] !rounded-lg drop-shadow-[0_8px_16px_rgba(0,0,0,0.6)]"
                       />
                     </div>
                   ))}
