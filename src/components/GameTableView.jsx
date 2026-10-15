@@ -119,6 +119,8 @@ export function GameTableView({
     lastWildDraw4PlayerName = null,
     deckTheme = 'classic',
     hurryUpTurns = 0,
+    hurryUpCasterIndex = null,
+    hurryUpCasterName = null,
     explosiveActive = false,
     vanishingCardId = null,
     wild4ChallengeAnim = null,
@@ -357,8 +359,8 @@ export function GameTableView({
           setTimeout(() => setRabbidsEventBanner(''), 1800);
         } else if (lastAction.card.value === 'rabbids_hurry_up') {
           soundManager.playWild();
-          setRabbidsEventBanner(`⚡ 【${lastAction.playerName}】啟動瘋狂快抽！全場進入 3 秒極限思考！`);
-          setTimeout(() => setRabbidsEventBanner(''), 1800);
+          setRabbidsEventBanner(`⚡ 【${lastAction.playerName}】啟動瘋狂快抽！全場 3 秒極限思考 (持續至出牌者再經 3 個回合)！`);
+          setTimeout(() => setRabbidsEventBanner(''), 2200);
         } else if (lastAction.card.value === 'rabbids_wild_shield' && lastAction.isVanishing) {
           soundManager.playWild();
           setRabbidsEventBanner(`🛡️ 【${lastAction.playerName}】展開兔兔盾牌！將累積罰抽直接轉嫁給下一位玩家！`);
@@ -949,7 +951,7 @@ export function GameTableView({
               )}
               {hurryUpTurns > 0 && (
                 <div className="animate-pulse flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-gradient-to-r from-amber-500 to-yellow-400 border border-yellow-200 text-black text-[11px] font-black shadow-[0_0_20px_rgba(245,158,11,0.9)]">
-                  <span>⚡ 瘋狂快抽 3秒限時 (剩 {hurryUpTurns} 回合)</span>
+                  <span>⚡ 瘋狂快抽 3秒極限思考 (出牌者【{hurryUpCasterIndex === myIndex ? '你' : (hurryUpCasterName || '出牌者')}】再經 {hurryUpTurns} 個回合結束)</span>
                 </div>
               )}
             </div>

@@ -34,7 +34,9 @@ export class UnoEngine {
   }
 
   reset() {
-    this.hurryUpTurns = 0;
+    this.hurryUpCasterIndex = null;
+    this.hurryUpCasterTurnsRemaining = 0;
+    this.justCastHurryUp = false;
     this.explosiveActive = false;
     this.vanishingCardId = null;
     this.pendingAdvanceStep = null;
@@ -141,9 +143,13 @@ export class UnoEngine {
       : 1;
     this.pendingAdvanceStep = null;
     this.hasDrawnThisTurn = false;
+
+    // 結算當前出牌者的個人回合
+    this.processHurryUpTurnEnd(this.currentTurn, null);
+
     this.currentTurn = this.getNextTurnIndex(step);
     this.turnStartTime = Date.now();
-    this.turnDuration = this.consumeTurnDuration();
+    this.turnDuration = this.getActiveTurnDuration();
 
     // 明確標記本次狀態更新為「特殊牌淡出消失」，防止前端誤以為底下的舊頂牌被重新打出！
     this.lastAction = {
@@ -451,16 +457,55 @@ export class UnoEngine {
     return best;
   }
 
+  get hurryUpTurns() {
+    return this.hurryUpCasterTurnsRemaining || 0;
+  }
+
+  set hurryUpTurns(val) {
+    this.hurryUpCasterTurnsRemaining = val;
+  }
+
   getActiveTurnDuration() {
-    return this.hurryUpTurns > 0 ? 3 : 15;
+    return this.hurryUpCasterTurnsRemaining > 0 ? 3 : 15;
   }
 
   consumeTurnDuration() {
-    if (this.hurryUpTurns > 0) {
-      this.hurryUpTurns--;
-      return 3;
+    return this.getActiveTurnDuration();
+  }
+
+  processHurryUpTurnEnd(endingPlayerIndex, skippedPlayerIndex = null) {
+    if (this.hurryUpCasterTurnsRemaining <= 0) return;
+
+    if (this.justCastHurryUp) {
+      // 本回合剛打出瘋狂快抽，此時出牌者結束的是打出該牌的當前回合，不計入後續 3 個個人回合！
+      this.justCastHurryUp = false;
+      return;
     }
-    return 15;
+
+    let shouldDecrement = false;
+    let reason = '';
+
+    if (endingPlayerIndex === this.hurryUpCasterIndex) {
+      shouldDecrement = true;
+      reason = '結束個人回合';
+    } else if (skippedPlayerIndex !== null && skippedPlayerIndex === this.hurryUpCasterIndex) {
+      shouldDecrement = true;
+      reason = '個人回合被跳過';
+    }
+
+    if (shouldDecrement) {
+      this.hurryUpCasterTurnsRemaining--;
+      const caster = this.players[this.hurryUpCasterIndex];
+      const casterName = caster ? caster.name : '出牌者';
+
+      if (this.hurryUpCasterTurnsRemaining > 0) {
+        this.addLog(`⚡ 瘋狂快抽：出牌者【${casterName}】${reason} (出牌者還剩 ${this.hurryUpCasterTurnsRemaining} 個個人回合)！`);
+      } else {
+        this.hurryUpCasterTurnsRemaining = 0;
+        this.hurryUpCasterIndex = null;
+        this.addLog(`⚡ 瘋狂快抽效果結束！【${casterName}】已完成 3 個個人回合，全場思考時間恢復為 15 秒！`);
+      }
+    }
   }
 
   checkAndTriggerExplosive(playerIndex) {
@@ -682,8 +727,10 @@ export class UnoEngine {
     }
 
     if (card.value === 'rabbids_hurry_up') {
-      this.hurryUpTurns = this.playerCount;
-      effectMsg += ` ⚡ 瘋狂快抽觸發 (保留當前${this.colorNames[this.currentColor] || '底牌'})！接下來 ${this.playerCount} 個回合每位玩家只有 3 秒思考時間！`;
+      this.hurryUpCasterIndex = playerIndex;
+      this.hurryUpCasterTurnsRemaining = 3;
+      this.justCastHurryUp = true;
+      effectMsg += ` ⚡ 瘋狂快抽觸發 (保留當前${this.colorNames[this.currentColor] || '底牌'})！全場進入 3 秒極限思考，效果持續至出牌者【${player.name}】再經過 3 個自己的回合為止！`;
     } else if (card.value === 'rabbids_explosive') {
       this.explosiveActive = true;
       effectMsg += ` 💣 炸彈已安裝在抽牌堆 (保留當前${this.colorNames[this.currentColor] || '底牌'})！下一位抽牌或受罰抽的玩家將引爆炸彈 (額外 +3 張)！`;
@@ -755,9 +802,12 @@ export class UnoEngine {
       };
     }
 
+    const skippedPlayerId = skippedPlayer ? skippedPlayer.id : null;
+    this.processHurryUpTurnEnd(playerIndex, skippedPlayerId);
+
     this.currentTurn = this.getNextTurnIndex(nextStep);
     this.turnStartTime = Date.now();
-    this.turnDuration = this.consumeTurnDuration();
+    this.turnDuration = this.getActiveTurnDuration();
 
     return {
       success: true,
@@ -834,10 +884,11 @@ export class UnoEngine {
       timestamp: Date.now()
     };
 
+    this.processHurryUpTurnEnd(playerIndex, null);
     this.hasDrawnThisTurn = false;
     this.currentTurn = this.getNextTurnIndex(nextStep);
     this.turnStartTime = Date.now();
-    this.turnDuration = this.consumeTurnDuration();
+    this.turnDuration = this.getActiveTurnDuration();
 
     return {
       success: true,
@@ -927,10 +978,11 @@ export class UnoEngine {
   }
 
   advanceTurn(step = 1) {
+    this.processHurryUpTurnEnd(this.currentTurn, null);
     this.hasDrawnThisTurn = false;
     this.currentTurn = this.getNextTurnIndex(step);
     this.turnStartTime = Date.now();
-    this.turnDuration = this.consumeTurnDuration();
+    this.turnDuration = this.getActiveTurnDuration();
     return this.currentTurn;
   }
 
@@ -1415,7 +1467,9 @@ export class UnoEngine {
       isSpectator: !!isSpectator,
       plusIndicator,
       deckTheme: this.deckTheme || 'classic',
-      hurryUpTurns: this.hurryUpTurns || 0,
+      hurryUpTurns: this.hurryUpCasterTurnsRemaining || 0,
+      hurryUpCasterIndex: this.hurryUpCasterIndex !== null ? this.hurryUpCasterIndex : null,
+      hurryUpCasterName: (this.hurryUpCasterIndex !== null && this.players[this.hurryUpCasterIndex]) ? this.players[this.hurryUpCasterIndex].name : null,
       explosiveActive: !!this.explosiveActive,
       vanishingCardId: this.vanishingCardId || null,
       gameMode: this.gameMode,
