@@ -354,26 +354,31 @@ export function GameTableView({
       setDisplayedHand(myHand);
     } else if (myHand.length > displayedHand.length) {
       const newCards = myHand.filter(c => !displayedHand.some(dh => dh.id === c.id) && !inflightCardIdsRef.current.has(c.id));
-      newCards.forEach((c, idx) => {
-        inflightCardIdsRef.current.add(c.id);
-        setTimeout(() => {
-          if (drawPileRef.current && myHandRef.current) {
-            cardAnimationService.animateDrawCard(drawPileRef.current, myHandRef.current, 'card_back', () => {
+      if (newCards.length > 0 && lastAction && (lastAction.type === 'draw_step' || lastAction.type === 'draw_finished' || lastAction.type === 'penalty_finish' || lastAction.card?.value === 'rabbids_comin_through' || lastAction.card?.value === 'rabbids_wild_shield')) {
+        newCards.forEach((c, idx) => {
+          inflightCardIdsRef.current.add(c.id);
+          setTimeout(() => {
+            if (drawPileRef.current && myHandRef.current) {
+              cardAnimationService.animateDrawCard(drawPileRef.current, myHandRef.current, 'card_back', () => {
+                inflightCardIdsRef.current.delete(c.id);
+                setDisplayedHand(prev => {
+                  if (prev.some(p => p.id === c.id)) return prev;
+                  return [...prev, c];
+                });
+              });
+            } else {
               inflightCardIdsRef.current.delete(c.id);
               setDisplayedHand(prev => {
                 if (prev.some(p => p.id === c.id)) return prev;
                 return [...prev, c];
               });
-            });
-          } else {
-            inflightCardIdsRef.current.delete(c.id);
-            setDisplayedHand(prev => {
-              if (prev.some(p => p.id === c.id)) return prev;
-              return [...prev, c];
-            });
-          }
-        }, idx * 180);
-      });
+            }
+          }, idx * 180);
+        });
+      } else if (inflightCardIdsRef.current.size === 0) {
+        // 若並非抽牌事件（例如剛才前端搶先移除手牌但後端未接受），立即還原手牌，避免視覺吃牌！
+        setDisplayedHand(myHand);
+      }
     }
 
     players.forEach((p) => {

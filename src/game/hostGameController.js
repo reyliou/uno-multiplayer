@@ -25,6 +25,7 @@ export class HostGameController {
     this.aiTimer = null;
     this.turnTimeoutTimer = null;
     this.continuousDrawTimer = null;
+    this.drawLandingTimer = null;
     this.isContinuousDrawing = false;
   }
 
@@ -99,6 +100,15 @@ export class HostGameController {
     if (!this.engine || this.engine.isDealing) {
       return { success: false, reason: '開局發牌中，尚未能出牌' };
     }
+
+    // 關鍵修正：如果玩家剛抽完可出的牌（還在 drawLandingTimer 緩衝內）就立刻點出牌，
+    // 直接清除 drawLandingTimer 並允許出牌，避免出牌被拒絕導致前端吃牌！
+    if (this.drawLandingTimer) {
+      clearTimeout(this.drawLandingTimer);
+      this.drawLandingTimer = null;
+      this.finishDrawingCleanup();
+    }
+
     if (this.isContinuousDrawing) {
       return { success: false, reason: '場上效果結算中，請稍候' };
     }
@@ -108,7 +118,11 @@ export class HostGameController {
     }
 
     const res = this.engine.playCard(playerIndex, cardId, chosenColor);
-    if (!res.success) return res;
+    if (!res.success) {
+      // 若出牌不合法，強制廣播一次真實狀態讓客端手牌立即校正回原狀
+      this.onBroadcastState();
+      return res;
+    }
 
     if (res.isChoosingColor) {
       this.emitSound('card');
@@ -197,12 +211,13 @@ export class HostGameController {
       const totalDrawn = 1 + (res.extraBombCards || 0);
       const flightAndBufferMs = totalDrawn * 240 + 600;
 
-      this.isContinuousDrawing = true;
-      this.engine.isContinuousDrawing = true;
-      this.onBroadcastState();
-
       if (!res.canPlay) {
-        setTimeout(() => {
+        this.isContinuousDrawing = true;
+        this.engine.isContinuousDrawing = true;
+        this.onBroadcastState();
+
+        this.drawLandingTimer = setTimeout(() => {
+          this.drawLandingTimer = null;
           this.finishDrawingCleanup();
           if (!this.engine || this.engine.gameStatus === 'game_over') return;
           this.engine.finishAutoPass(playerIndex, res.card);
@@ -211,15 +226,17 @@ export class HostGameController {
           if (onDrawComplete) onDrawComplete(res);
         }, flightAndBufferMs);
       } else {
-        setTimeout(() => {
-          this.finishDrawingCleanup();
-          if (!this.engine || this.engine.gameStatus === 'game_over') return;
-          this.engine.turnStartTime = Date.now();
-          this.engine.turnDuration = this.engine.getActiveTurnDuration();
-          this.resetTurnTimer();
-          this.onBroadcastState();
-          if (onDrawComplete) onDrawComplete(res);
-        }, 450);
+        // 抽到可出的牌：不鎖死 isContinuousDrawing，直接重置計時器並廣播讓玩家可隨時出牌！
+        this.engine.turnStartTime = Date.now();
+        this.engine.turnDuration = this.engine.getActiveTurnDuration();
+        this.resetTurnTimer();
+        this.onBroadcastState();
+        if (onDrawComplete) {
+          this.drawLandingTimer = setTimeout(() => {
+            this.drawLandingTimer = null;
+            onDrawComplete(res);
+          }, 420);
+        }
       }
     }
     return res;
@@ -227,6 +244,11 @@ export class HostGameController {
 
   passTurn(playerIndex) {
     if (!this.engine) return { success: false, reason: '未在遊戲中' };
+    if (this.drawLandingTimer) {
+      clearTimeout(this.drawLandingTimer);
+      this.drawLandingTimer = null;
+      this.finishDrawingCleanup();
+    }
     const res = this.engine.passTurn(playerIndex);
     if (res.success) {
       this.onBroadcastState();
@@ -428,13 +450,16 @@ export class HostGameController {
       clearTimeout(this.turnTimeoutTimer);
       this.turnTimeoutTimer = null;
     }
+    if (this.drawLandingTimer) {
+      clearTimeout(this.drawLandingTimer);
+      this.drawLandingTimer = null;
+    }
 
     this.isContinuousDrawing = true;
     this.engine.isContinuousDrawing = true;
     this.onBroadcastState();
 
     if (card.value === 'rabbids_comin_through') {
-      // 瘋狂借過：第一波 -> 第二波 -> 牌面淡出 -> 換下一家
       setTimeout(() => {
         if (!this.engine || this.engine.gameStatus === 'game_over') return;
         this.engine.executeCominThroughWave(casterIndex, 1);
@@ -457,24 +482,18 @@ export class HostGameController {
         }, 1250);
       }, 700);
     } else if (card.value === 'rabbids_wild_shield' && card.deflectedCount > 0) {
-      // 兔兔盾牌反彈：
-      // 階段 1：先讓盾牌在牌桌中央展示 750ms
       setTimeout(() => {
         if (!this.engine || this.engine.gameStatus === 'game_over') return;
         const victimIdx = card.deflectedVictimIdx;
         const count = card.deflectedCount;
 
-        // 階段 2：觸發下家承受反彈抽牌（前端會以每張 180ms 依序飛牌）
         this.engine.executeShieldDeflectDraw(victimIdx, count);
         this.emitSound('penalty');
         this.onBroadcastState();
 
-        // 階段 3：動態計算所有反彈牌飛入下家手牌並落地的完整時間（每張 220ms + 基礎落地緩衝 850ms）
-        // 在這段時間內 isContinuousDrawing 保持為 true，電腦絕對無法提前偷出牌！
         const totalFlightWaitMs = count * 220 + 850;
         setTimeout(() => {
           if (!this.engine || this.engine.gameStatus === 'game_over') return;
-          // 飛牌全部落地後，移除棄牌堆上的盾牌並正式把出牌權交給這位剛被加完牌的下家！
           this.engine.vanishTopSpecialCard(card.id);
           this.finishDrawingCleanup();
           this.onBroadcastState();
@@ -688,7 +707,6 @@ export class HostGameController {
       this.playCard(aiIndex, move.card.id, move.chosenColor, !!move.callUno);
     } else if (move.action === 'draw') {
       this.drawCard(aiIndex, (res) => {
-        // If AI drew a playable card (either via single draw or draw_until_playable), play it after a brief pause
         if (res && res.canPlay && res.card) {
           setTimeout(() => {
             if (this.engine && this.engine.currentTurn === aiIndex && !this.isContinuousDrawing) {
@@ -710,6 +728,10 @@ export class HostGameController {
     if (this.continuousDrawTimer) {
       clearTimeout(this.continuousDrawTimer);
       this.continuousDrawTimer = null;
+    }
+    if (this.drawLandingTimer) {
+      clearTimeout(this.drawLandingTimer);
+      this.drawLandingTimer = null;
     }
     if (this.engine) {
       this.engine.isContinuousDrawing = false;
