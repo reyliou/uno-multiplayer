@@ -434,26 +434,29 @@ export class HostGameController {
     this.onBroadcastState();
 
     if (card.value === 'rabbids_comin_through') {
+      // 第 1 階段：牌落到中央 700ms 後 -> 發動第一波 (隨機 5 張發給其他玩家)
       setTimeout(() => {
         if (!this.engine || this.engine.gameStatus === 'game_over') return;
         this.engine.executeCominThroughWave(casterIndex, 1);
         this.emitSound('draw');
         this.onBroadcastState();
 
+        // 第 2 階段：等待 1250ms 讓第一波 5 張牌飛完 -> 發動第二波 (隨機 5 張發給全場所有人)
         setTimeout(() => {
           if (!this.engine || this.engine.gameStatus === 'game_over') return;
           this.engine.executeCominThroughWave(casterIndex, 2);
           this.emitSound('draw');
           this.onBroadcastState();
 
+          // 第 3 階段：等待 1350ms 讓第二波 5 張牌落地 -> 棄牌堆上的「瘋狂借過」淡出消失並換下一家！
           setTimeout(() => {
             if (!this.engine || this.engine.gameStatus === 'game_over') return;
             this.engine.vanishTopSpecialCard(card.id);
             this.finishDrawingCleanup();
             this.onBroadcastState();
             this.checkAiTurn();
-          }, 1050);
-        }, 950);
+          }, 1350);
+        }, 1250);
       }, 700);
     } else {
       setTimeout(() => {

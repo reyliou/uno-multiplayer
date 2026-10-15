@@ -136,24 +136,45 @@ export class UnoEngine {
     }
   }
 
+  // Steam UNO Rabbids Official Rule for Comin' Through!:
+  // Wave 1: 5 cards are randomly distributed to everyone EXCEPT the caster.
+  // Wave 2: 5 more cards are randomly distributed to EVERYONE including the caster.
   executeCominThroughWave(casterIndex, wave = 1) {
-    const drawnInfo = [];
+    const countMap = {};
+
     if (wave === 1) {
-      this.players.forEach((p, idx) => {
-        if (idx !== casterIndex) {
-          const cards = this.drawCardsForPlayer(idx, 1);
-          drawnInfo.push({ playerIndex: idx, cards });
+      // 找出除了出牌者以外的所有玩家索引
+      const opponentIndices = this.players
+        .map((_, idx) => idx)
+        .filter(idx => idx !== casterIndex);
+
+      if (opponentIndices.length > 0) {
+        for (let i = 0; i < 5; i++) {
+          const targetIdx = opponentIndices[Math.floor(Math.random() * opponentIndices.length)];
+          this.drawCardsForPlayer(targetIdx, 1);
+          countMap[targetIdx] = (countMap[targetIdx] || 0) + 1;
         }
-      });
-      this.addLog(`🌪️ 【瘋狂借過・第一波】兔兔推車衝向所有對手，其他玩家各抽 1 張牌！`);
+      }
+
+      const summary = Object.entries(countMap)
+        .map(([idx, cnt]) => `${this.players[idx].name} +${cnt}張`)
+        .join('、');
+      this.addLog(`🌪️ 【瘋狂借過・第一波】隨機發出 5 張牌給其他玩家（${summary}）！`);
     } else if (wave === 2) {
-      this.players.forEach((p, idx) => {
-        const cards = this.drawCardsForPlayer(idx, 1);
-        drawnInfo.push({ playerIndex: idx, cards });
-      });
-      this.addLog(`🌪️ 【瘋狂借過・第二波】兔兔推車失控迴轉，全場所有玩家（含出牌者）再各抽 1 張牌！`);
+      // 全場所有玩家（包含出牌者自己）皆可被隨機分配
+      for (let i = 0; i < 5; i++) {
+        const targetIdx = Math.floor(Math.random() * this.playerCount);
+        this.drawCardsForPlayer(targetIdx, 1);
+        countMap[targetIdx] = (countMap[targetIdx] || 0) + 1;
+      }
+
+      const summary = Object.entries(countMap)
+        .map(([idx, cnt]) => `${this.players[idx].name} +${cnt}張`)
+        .join('、');
+      this.addLog(`🌪️ 【瘋狂借過・第二波】兔兔迴轉無差別隨機發出 5 張牌給全場（${summary}）！`);
     }
-    return drawnInfo;
+
+    return countMap;
   }
 
   finishDealing() {
