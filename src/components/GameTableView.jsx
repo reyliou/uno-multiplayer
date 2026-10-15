@@ -122,7 +122,8 @@ export function GameTableView({
   } = gameState || {};
 
   const is2v2 = gameMode === '2v2';
-  const isMyTurn = currentTurn === myIndex && !isContinuousDrawing && !isDealing;
+  const isForcedPenalty = stackedDrawCount > 0 && validCards.length === 0 && !canChallengeWildDraw4;
+  const isMyTurn = currentTurn === myIndex && !isContinuousDrawing && !isDealing && !isForcedPenalty;
 
   const [displayedHand, setDisplayedHand] = useState(myHand);
   const [displayedCounts, setDisplayedCounts] = useState({});
@@ -165,10 +166,10 @@ export function GameTableView({
   const autoPenaltyTimerRef = useRef(null);
 
   useEffect(() => {
-    if (isMyTurn && !isDealing && !isContinuousDrawing && stackedDrawCount > 0 && validCards.length === 0 && !canChallengeWildDraw4) {
+    if (currentTurn === myIndex && !isDealing && !isContinuousDrawing && isForcedPenalty) {
       showToast(`💥 無對應牌可疊！自動承受累積罰抽【+${stackedDrawCount} 張】...`);
       autoPenaltyTimerRef.current = setTimeout(() => {
-        handleDrawWithAnimation();
+        onDrawCard();
       }, 750);
       return () => {
         if (autoPenaltyTimerRef.current) {
@@ -177,7 +178,7 @@ export function GameTableView({
         }
       };
     }
-  }, [isMyTurn, isDealing, isContinuousDrawing, stackedDrawCount, validCards.length, canChallengeWildDraw4]);
+  }, [currentTurn, myIndex, isDealing, isContinuousDrawing, isForcedPenalty, stackedDrawCount]);
 
   // Calculate Seats (Top, Left, Right)
   const totalP = players.length;
@@ -911,12 +912,12 @@ export function GameTableView({
               avatar="👤"
               isLocal
               isHost={isHost}
-              isActiveTurn={isMyTurn}
+              isActiveTurn={currentTurn === myIndex && !isDealing && !isContinuousDrawing}
               isSkipped={skippedPlayerInfo && skippedPlayerInfo.playerId === myIndex}
               isChoosingColor={isChoosingColor && colorChoosingPlayerIndex === myIndex}
               isContinuousDrawing={isContinuousDrawing && drawingPlayerIndex === myIndex}
               drawingStepCount={drawingStepCount}
-              showTimer={((isMyTurn && !isChoosingColor) || (isChoosingColor && colorChoosingPlayerIndex === myIndex)) && !isDealing && !isContinuousDrawing && gameState?.gameStatus !== 'game_over'}
+              showTimer={((currentTurn === myIndex && !isChoosingColor) || (isChoosingColor && colorChoosingPlayerIndex === myIndex)) && !isDealing && !isContinuousDrawing && gameState?.gameStatus !== 'game_over'}
               turnStartTime={turnStartTime}
               turnDuration={turnDuration || (isChoosingColor ? 6 : 15)}
               timerPosition="right"
@@ -946,7 +947,7 @@ export function GameTableView({
                 </span>
               ) : (
                 <>
-                  {!isMyTurn && !isChoosingColor && (
+                  {!isMyTurn && !isChoosingColor && !isForcedPenalty && (
                     <span className="text-xs text-gray-300 font-medium px-3 py-1 rounded-full bg-black/50 border border-white/10 hidden sm:inline-block">
                       等待對手行動中...
                     </span>
@@ -1003,12 +1004,12 @@ export function GameTableView({
                     </button>
                   )}
 
-                  {isMyTurn && !isChoosingColor && (!hasDrawnThisTurn || stackedDrawCount > 0) && (
-                    stackedDrawCount > 0 && validCards.length === 0 && !canChallengeWildDraw4 ? (
+                  {currentTurn === myIndex && !isDealing && !isContinuousDrawing && !isChoosingColor && (
+                    isForcedPenalty ? (
                       <div className="py-1.5 px-3.5 sm:px-4 rounded-full font-bold text-xs bg-red-950/90 border border-red-500/60 text-red-300 flex items-center gap-1.5 shadow-lg animate-pulse">
                         <span>自動承受罰抽 (+{stackedDrawCount})</span>
                       </div>
-                    ) : (
+                    ) : (!hasDrawnThisTurn || stackedDrawCount > 0) && (
                       <button
                         type="button"
                         disabled={isContinuousDrawing}
