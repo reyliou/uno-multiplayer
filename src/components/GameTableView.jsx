@@ -1081,19 +1081,41 @@ export function GameTableView({
             </div>
           </div>
 
-          {/* Straight Level Hand Cards */}
+          {/* Straight Level Hand Cards with Steam-style Dynamic Overlap & Accordion Hover */}
           {(() => {
-            if (isSpectator) {
-              return (
-                <div
-                  ref={myHandRef}
-                  className="relative w-full max-w-4xl px-4 pt-1 pb-1 flex flex-col items-center justify-center min-h-[125px]"
-                >
-                  {renderHandPlusBadge(myPlayer.id, '-top-10 left-1/2 -translate-x-1/2')}
+            const isMeChallenged = !isSpectator && wild4ChallengeAnim && wild4ChallengeAnim.challengedId === myIndex;
+            const totalCards = handToDisplay.length;
+
+            // Steam-style dynamic negative margin calculation:
+            // Keeps total hand width within ~760px even if player holds 25+ cards!
+            // Card base width is ~96px on desktop.
+            const maxHandTrackWidth = typeof window !== 'undefined' ? Math.min(window.innerWidth - 48, 820) : 760;
+            const cardBaseWidth = 96;
+            let dynamicOverlap = -24; // Default comfortable overlap for <= 8 cards
+            if (totalCards > 8) {
+              const allowedStep = (maxHandTrackWidth - cardBaseWidth) / (totalCards - 1);
+              // Clamp overlap so at least 18px (the corner number/color index) is always visible
+              const clampedStep = Math.max(18, Math.min(72, allowedStep));
+              dynamicOverlap = clampedStep - cardBaseWidth;
+            }
+
+            // Slightly scale down card size if holding 16+ cards
+            const densityScale = totalCards > 18 ? 0.88 : totalCards > 13 ? 0.93 : 1;
+
+            return (
+              <div
+                ref={myHandRef}
+                className={`relative w-full max-w-5xl px-4 pt-1 pb-1 overflow-visible flex items-center justify-center min-h-[125px] ${
+                  isMeChallenged && !wild4ChallengeAnim.isSuccess ? 'challenge-hand-shake' : ''
+                }`}
+              >
+                {renderHandPlusBadge && renderHandPlusBadge(isSpectator ? myPlayer.id : myIndex, '-top-12 left-1/2 -translate-x-1/2')}
+
+                {isSpectator ? (
                   <div className="flex flex-col items-center gap-2">
                     <OpponentHand3D
                       side="top"
-                      count={displayedCounts[myPlayer.id] !== undefined ? displayedCounts[myPlayer.id] : (myPlayer.cardCount || 0)}
+                      count={displayedCounts[myPlayer.id] !== undefined ? displayedCounts[myPlayer.id] : (myPlayer.cardCount || 1)}
                       deckTheme={deckTheme}
                     />
                     <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/60 border border-sky-500/30 text-[11px] text-sky-300/90 backdrop-blur-sm">
@@ -1101,75 +1123,68 @@ export function GameTableView({
                       <span>觀戰中：本席手牌不公開</span>
                     </div>
                   </div>
-                </div>
-              );
-            }
+                ) : (
+                  <div className="flex items-center justify-center overflow-visible transition-all">
+                    {handToDisplay.map((card, idx) => {
+                      const isPlayable = isMyTurn && validCards.includes(card.id);
+                      const isCulpritCard = isMeChallenged && wild4ChallengeAnim.matchingCardIds?.includes(card.id);
 
-            const isMeChallenged = wild4ChallengeAnim && wild4ChallengeAnim.challengedId === myIndex;
+                      let translateY = isHandCollapsed ? 16 : (isMyTurn ? 0 : 8);
+                      let scale = (isMyTurn ? (isHandCollapsed ? 0.94 : 1) : 0.95) * densityScale;
+                      let filter = (isDealing || isContinuousDrawing)
+                        ? 'brightness(0.7) saturate(80%)'
+                        : (isMyTurn ? 'brightness(1) saturate(100%)' : 'brightness(0.68) saturate(85%)');
 
-            return (
-              <div
-                ref={myHandRef}
-                className={`relative w-full max-w-4xl px-4 pt-1 pb-1 overflow-visible flex items-center justify-center min-h-[125px] ${
-                  isMeChallenged && !wild4ChallengeAnim.isSuccess ? 'challenge-hand-shake' : ''
-                }`}
-              >
-                {renderHandPlusBadge(myIndex, '-top-12 left-1/2 -translate-x-1/2')}
-                <div className="flex items-center justify-center -space-x-5 sm:-space-x-6 md:-space-x-7 overflow-visible transition-all">
-                  {handToDisplay.map((card, idx) => {
-                    const isPlayable = isMyTurn && validCards.includes(card.id);
-                    const isCulpritCard = isMeChallenged && wild4ChallengeAnim.matchingCardIds?.includes(card.id);
-
-                    let translateY = isHandCollapsed ? 16 : (isMyTurn ? 0 : 8);
-                    let scale = isMyTurn ? (isHandCollapsed ? 0.94 : 1) : 0.95;
-                    let filter = (isDealing || isContinuousDrawing)
-                      ? 'brightness(0.7) saturate(80%)'
-                      : (isMyTurn ? 'brightness(1) saturate(100%)' : 'brightness(0.68) saturate(85%)');
-
-                    if (isMeChallenged) {
-                      if (isCulpritCard) {
-                        translateY = -28;
-                        scale = 1.15;
-                        filter = 'brightness(1.25) drop-shadow(0 0 18px rgba(34, 197, 94, 0.95))';
-                      } else if (wild4ChallengeAnim.isSuccess) {
-                        filter = 'brightness(0.35) saturate(50%)';
+                      if (isMeChallenged) {
+                        if (isCulpritCard) {
+                          translateY = -28;
+                          scale = 1.15;
+                          filter = 'brightness(1.25) drop-shadow(0 0 18px rgba(34, 197, 94, 0.95))';
+                        } else if (wild4ChallengeAnim.isSuccess) {
+                          filter = 'brightness(0.35) saturate(50%)';
+                        }
                       }
-                    }
 
-                    return (
-                      <div
-                        key={card.id}
-                        style={{
-                          transform: `translateY(${translateY}px) scale(${scale})`,
-                          transformOrigin: 'bottom center',
-                          filter,
-                          transitionProperty: 'transform, filter',
-                          transitionDuration: '320ms',
-                          transitionTimingFunction: 'cubic-bezier(0.34, 1.4, 0.64, 1)',
-                          transitionDelay: isHandCollapsed ? '0ms' : `${idx * 20}ms`,
-                          pointerEvents: isMyTurn ? 'auto' : 'none',
-                          zIndex: isCulpritCard ? 45 : undefined
-                        }}
-                        className={`relative overflow-visible transition-transform duration-200 ${
-                          isMyTurn ? 'hover:z-40 hover:!-translate-y-5 cursor-pointer' : 'select-none'
-                        }`}
-                      >
-                        {isCulpritCard && (
-                          <div className="absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap px-2 py-0.5 rounded-md bg-green-500 text-black text-[10px] font-black shadow-[0_0_12px_rgba(34,197,94,0.9)] animate-bounce z-50">
-                            違規同色
-                          </div>
-                        )}
-                        <CardView
-                          deckTheme={deckTheme}
-                          card={card}
-                          isPlayable={isPlayable}
-                          onClick={(e) => handleCardClick(card, e?.currentTarget)}
-                          className={isCulpritCard ? 'shadow-[0_0_25px_rgba(34,197,94,0.95)] ring-2 ring-green-400' : 'shadow-2xl'}
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
+                      return (
+                        <div
+                          key={card.id}
+                          style={{
+                            marginLeft: idx === 0 ? '0px' : `${dynamicOverlap}px`,
+                            transform: `translateY(${translateY}px) scale(${scale})`,
+                            transformOrigin: 'bottom center',
+                            filter,
+                            transitionProperty: 'transform, filter, margin',
+                            transitionDuration: '240ms',
+                            transitionTimingFunction: 'cubic-bezier(0.25, 1, 0.5, 1)',
+                            transitionDelay: isHandCollapsed ? '0ms' : `${Math.min(idx * 15, 240)}ms`,
+                            pointerEvents: isMyTurn ? 'auto' : 'none',
+                            zIndex: isCulpritCard ? 50 : idx + 1
+                          }}
+                          className={`relative overflow-visible ${
+                            isMyTurn
+                              ? `hover:!z-50 hover:!-translate-y-6 hover:!scale-105 ${
+                                  totalCards > 9 ? 'hover:mr-5 hover:ml-1' : ''
+                                } cursor-pointer`
+                              : 'select-none'
+                          }`}
+                        >
+                          {isCulpritCard && (
+                            <div className="absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap px-2 py-0.5 rounded-md bg-green-500 text-black text-[10px] font-black shadow-[0_0_12px_rgba(34,197,94,0.9)] animate-bounce z-50">
+                              違規同色
+                            </div>
+                          )}
+                          <CardView
+                            deckTheme={deckTheme}
+                            card={card}
+                            isPlayable={isPlayable}
+                            onClick={(e) => handleCardClick(card, e?.currentTarget)}
+                            className={isCulpritCard ? 'shadow-[0_0_25px_rgba(34,197,94,0.95)] ring-2 ring-green-400' : 'shadow-2xl'}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             );
           })()}

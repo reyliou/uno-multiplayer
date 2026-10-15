@@ -10,12 +10,26 @@ export function OpponentHand3D({
   teammateHand = []
 }) {
   if (side === 'top' && isTeammateTop) {
+    const tCount = teammateHand.length;
+    // Keep teammate's face-up hand within ~460px at the top of the table
+    const maxTopWidth = 460;
+    const cardW = 74;
+    let topOverlap = -16;
+    if (tCount > 7) {
+      const step = Math.max(14, Math.min(58, (maxTopWidth - cardW) / (tCount - 1)));
+      topOverlap = step - cardW;
+    }
+
     return (
-      <div className="flex items-center -space-x-3 sm:-space-x-4 card-reflection">
+      <div className="flex items-center justify-center card-reflection">
         {teammateHand.map((c, cIdx) => (
           <div
             key={c.id || cIdx}
-            className="transition-transform duration-150 hover:-translate-y-2 hover:scale-110 hover:z-30 cursor-pointer"
+            style={{
+              marginLeft: cIdx === 0 ? '0px' : `${topOverlap}px`,
+              zIndex: cIdx + 1
+            }}
+            className="transition-all duration-150 hover:-translate-y-2 hover:scale-115 hover:!z-40 hover:mr-3 cursor-pointer"
             title={`隊友手牌: ${c.color} ${c.value}`}
           >
             <CardView
