@@ -136,6 +136,8 @@ export function GameTableView({
   const initialSyncRef = useRef(false);
   const inflightCardIdsRef = useRef(new Set());
   const inflightOpponentCountsRef = useRef({});
+  const isCardPlayingRef = useRef(false);
+  const [isCardPlaying, setIsCardPlaying] = useState(false);
 
   useEffect(() => {
     if ((!initialSyncRef.current || isDealing) && myHand && myHand.length > 0) {
@@ -166,8 +168,24 @@ export function GameTableView({
   const hasDrawnThisTurn = isMyTurn && (localHasDrawn || remoteHasDrawn);
 
   useEffect(() => {
+    isCardPlayingRef.current = false;
+    setIsCardPlaying(false);
     setLocalHasDrawn(false);
   }, [currentTurn]);
+
+  useEffect(() => {
+    if (isChoosingColor) {
+      isCardPlayingRef.current = false;
+      setIsCardPlaying(false);
+    }
+  }, [isChoosingColor]);
+
+  useEffect(() => {
+    if (currentTurn !== myIndex) {
+      isCardPlayingRef.current = false;
+      setIsCardPlaying(false);
+    }
+  }, [currentTurn, myIndex]);
 
   const autoPenaltyTimerRef = useRef(null);
 
@@ -455,6 +473,7 @@ export function GameTableView({
   };
 
   const handleCardClick = (card, cardEl) => {
+    if (isCardPlayingRef.current) return;
     if (isDealing) {
       showToast('🎴 開局發牌中，請稍候...');
       return;
@@ -476,7 +495,24 @@ export function GameTableView({
       return;
     }
 
+    // 防呆鎖定：出牌動畫進行中，嚴防玩家連點出多張牌或觸發幽靈飛牌
+    isCardPlayingRef.current = true;
+    setIsCardPlaying(true);
+
     const hasPreCalledUno = !!myPlayer.calledUno;
+
+    const unlockFallback = () => {
+      if (isCardPlayingRef.current) {
+        isCardPlayingRef.current = false;
+        setIsCardPlaying(false);
+        setDisplayedHand(myHand);
+      }
+    };
+
+    const executePlay = () => {
+      onPlayCard(card.id, null, hasPreCalledUno);
+      setTimeout(unlockFallback, 1500);
+    };
 
     if (card.color === 'wild') {
       soundManager.playWild();
@@ -485,11 +521,9 @@ export function GameTableView({
 
       if (cardEl && discardPileRef.current) {
         const cardKey = card.displayAssetKey || card.assetKey;
-        cardAnimationService.animatePlayCard(cardEl, discardPileRef.current, cardKey, () => {
-          onPlayCard(card.id, null, hasPreCalledUno);
-        });
+        cardAnimationService.animatePlayCard(cardEl, discardPileRef.current, cardKey, executePlay);
       } else {
-        onPlayCard(card.id, null, hasPreCalledUno);
+        executePlay();
       }
     } else {
       if (card.value === 'skip') {
@@ -510,11 +544,9 @@ export function GameTableView({
 
       if (cardEl && discardPileRef.current) {
         const cardKey = card.displayAssetKey || card.assetKey;
-        cardAnimationService.animatePlayCard(cardEl, discardPileRef.current, cardKey, () => {
-          onPlayCard(card.id, null, hasPreCalledUno);
-        });
+        cardAnimationService.animatePlayCard(cardEl, discardPileRef.current, cardKey, executePlay);
       } else {
-        onPlayCard(card.id, null, hasPreCalledUno);
+        executePlay();
       }
     }
   };
@@ -532,6 +564,7 @@ export function GameTableView({
     }
     if (isContinuousDrawing) return;
     if (isChoosingColor) return;
+    if (isCardPlayingRef.current) return;
     if (!isMyTurn) {
       showToast(`尚未輪到你的回合！目前輪到【${players[currentTurn]?.name || '對手'}】出牌`);
       return;
@@ -832,10 +865,10 @@ export function GameTableView({
                 )}
                 <div
                   ref={drawPileRef}
-                  onClick={isContinuousDrawing ? undefined : handleDrawWithAnimation}
+                  onClick={isContinuousDrawing || isCardPlaying ? undefined : handleDrawWithAnimation}
                   title={
-                    isContinuousDrawing
-                      ? '正在結算動畫中...'
+                    (isContinuousDrawing || isCardPlaying)
+                      ? '正在出牌或結算動畫中...'
                       : (hasDrawnThisTurn && stackedDrawCount === 0)
                       ? '本回合已抽過牌，請打出手牌或點擊過牌'
                       : '點擊抽一張牌'
@@ -843,7 +876,7 @@ export function GameTableView({
                   className={`relative deck-3d-stack ${
                     explosiveActive ? 'ring-4 ring-red-500 shadow-[0_0_25px_rgba(239,68,68,0.85)] rounded-xl' : ''
                   } ${
-                    isContinuousDrawing
+                    (isContinuousDrawing || isCardPlaying)
                       ? 'cursor-wait opacity-80'
                       : (hasDrawnThisTurn && stackedDrawCount === 0)
                       ? 'cursor-not-allowed opacity-75'
@@ -1018,7 +1051,7 @@ export function GameTableView({
                     </button>
                   )}
 
-                  {isMyTurn && !isChoosingColor && hasDrawnThisTurn && stackedDrawCount === 0 && (
+                  {isMyTurn && !isChoosingColor && !isCardPlaying && hasDrawnThisTurn && stackedDrawCount === 0 && (
                     <button
                       type="button"
                       onClick={() => {
@@ -1031,7 +1064,10 @@ export function GameTableView({
                     </button>
                   )}
 
-                  {!isDealing && (((isMyTurn && !isChoosingColor && displayedHand.length === 2 && (validCards.length > 0 || myPlayer.calledUno))) || (displayedHand.length === 1)) && (
+                  {!isDealing && !isSpectator && !isCardPlaying && (
+                    ((isMyTurn && !isChoosingColor && myHand.length === 2 && (validCards.length > 0 || myPlayer.calledUno))) ||
+                    (myHand.length === 1)
+                  ) && (
                     <button
                       type="button"
                       onClick={onCallUno}
@@ -1046,7 +1082,7 @@ export function GameTableView({
                     </button>
                   )}
 
-                  {isMyTurn && !isChoosingColor && canChallengeWildDraw4 && (
+                  {isMyTurn && !isChoosingColor && !isCardPlaying && canChallengeWildDraw4 && (
                     <button
                       type="button"
                       onClick={onChallengeWildDraw4}
@@ -1056,7 +1092,7 @@ export function GameTableView({
                     </button>
                   )}
 
-                  {currentTurn === myIndex && !isDealing && !isContinuousDrawing && !isChoosingColor && (
+                  {currentTurn === myIndex && !isDealing && !isContinuousDrawing && !isChoosingColor && !isCardPlaying && (
                     isForcedPenalty ? (
                       <div className="py-1.5 px-3.5 sm:px-4 rounded-full font-bold text-xs bg-red-950/90 border border-red-500/60 text-red-300 flex items-center gap-1.5 shadow-lg animate-pulse">
                         <span>自動承受罰抽 (+{stackedDrawCount})</span>
@@ -1064,7 +1100,7 @@ export function GameTableView({
                     ) : (!hasDrawnThisTurn || stackedDrawCount > 0) && (
                       <button
                         type="button"
-                        disabled={isContinuousDrawing}
+                        disabled={isContinuousDrawing || isCardPlaying}
                         onClick={handleDrawWithAnimation}
                         className="py-1.5 px-4 rounded-full font-extrabold text-xs shadow-lg transition duration-150 flex items-center gap-1.5 bg-gradient-to-r from-sky-600 to-sky-700 hover:from-sky-500 hover:to-sky-600 text-white active:scale-95 disabled:opacity-50"
                       >
@@ -1157,21 +1193,21 @@ export function GameTableView({
                             transitionDuration: '240ms',
                             transitionTimingFunction: 'cubic-bezier(0.25, 1, 0.5, 1)',
                             transitionDelay: isHandCollapsed ? '0ms' : `${Math.min(idx * 15, 240)}ms`,
-                            pointerEvents: isMyTurn ? 'auto' : 'none',
+                            pointerEvents: (isMyTurn && !isCardPlaying) ? 'auto' : 'none',
                             zIndex: isCulpritCard ? 50 : idx + 1
                           }}
                           className={`relative overflow-visible ${
-                            isMyTurn
+                            (isMyTurn && !isCardPlaying)
                               ? `hover:!z-50 hover:!-translate-y-6 hover:!scale-105 ${
                                   totalCards > 9 ? 'hover:mr-5 hover:ml-1' : ''
                                 } cursor-pointer`
-                              : 'select-none'
+                              : 'select-none pointer-events-none'
                           }`}
                         >
                           <CardView
                             deckTheme={deckTheme}
                             card={card}
-                            isPlayable={isPlayable}
+                            isPlayable={isPlayable && !isCardPlaying}
                             onClick={(e) => handleCardClick(card, e?.currentTarget)}
                             className={isCulpritCard ? 'shadow-[0_0_25px_rgba(34,197,94,0.95)] ring-2 ring-green-400' : 'shadow-2xl'}
                           />
