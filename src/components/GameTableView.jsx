@@ -1168,11 +1168,6 @@ export function GameTableView({
                               : 'select-none'
                           }`}
                         >
-                          {isCulpritCard && (
-                            <div className="absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap px-2 py-0.5 rounded-md bg-green-500 text-black text-[10px] font-black shadow-[0_0_12px_rgba(34,197,94,0.9)] animate-bounce z-50">
-                              違規同色
-                            </div>
-                          )}
                           <CardView
                             deckTheme={deckTheme}
                             card={card}
