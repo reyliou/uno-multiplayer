@@ -26,6 +26,7 @@ export class HostGameController {
     this.turnTimeoutTimer = null;
     this.continuousDrawTimer = null;
     this.drawLandingTimer = null;
+    this.challengeTimer = null;
     this.isContinuousDrawing = false;
   }
 
@@ -281,20 +282,39 @@ export class HostGameController {
     if (!this.engine || this.isContinuousDrawing) return { success: false };
     const res = this.engine.challengeWildDraw4(challengerIndex);
     if (res.success) {
-      this.emitSound('penalty');
-      const drawnCount = res.penalty || Math.max(4, res.priorCount || 4);
-      const animWait = drawnCount * 220 + 800;
+      if (this.turnTimeoutTimer) {
+        clearTimeout(this.turnTimeoutTimer);
+        this.turnTimeoutTimer = null;
+      }
       this.isContinuousDrawing = true;
-      this.engine.isContinuousDrawing = true;
+      this.emitSound('action');
       this.onBroadcastState();
-      setTimeout(() => {
-        this.finishDrawingCleanup();
-        if (this.engine) {
-          this.engine.turnStartTime = Date.now();
-          this.onBroadcastState();
+
+      // 第一階段：等待 2450ms 驗牌演出完畢
+      this.challengeTimer = setTimeout(() => {
+        if (!this.engine || this.engine.gameStatus === 'game_over') {
+          this.finishDrawingCleanup();
+          return;
         }
-        this.checkAiTurn();
-      }, animWait);
+
+        // 第二階段：驗牌動畫結束，正式發放罰抽卡牌並結算
+        const penaltyRes = this.engine.resolveWildDraw4ChallengePenalty();
+        this.emitSound('penalty');
+        this.onBroadcastState();
+
+        // 預留卡牌飛入牌組的飛行時間 (每張 220ms + 750ms 緩衝)
+        const drawnCount = penaltyRes.drawnCount || 4;
+        const flightWait = drawnCount * 220 + 750;
+
+        this.challengeTimer = setTimeout(() => {
+          this.finishDrawingCleanup();
+          if (this.engine) {
+            this.resetTurnTimer();
+            this.onBroadcastState();
+          }
+          this.checkAiTurn();
+        }, flightWait);
+      }, 2450);
     }
     return res;
   }
@@ -733,10 +753,15 @@ export class HostGameController {
       clearTimeout(this.drawLandingTimer);
       this.drawLandingTimer = null;
     }
+    if (this.challengeTimer) {
+      clearTimeout(this.challengeTimer);
+      this.challengeTimer = null;
+    }
     if (this.engine) {
       this.engine.isContinuousDrawing = false;
       this.engine.drawingPlayerIndex = null;
       this.engine.drawingStepCount = 0;
+      this.engine.wild4ChallengeAnim = null;
     }
   }
 
@@ -753,6 +778,10 @@ export class HostGameController {
     if (this.turnTimeoutTimer) {
       clearTimeout(this.turnTimeoutTimer);
       this.turnTimeoutTimer = null;
+    }
+    if (this.challengeTimer) {
+      clearTimeout(this.challengeTimer);
+      this.challengeTimer = null;
     }
   }
 

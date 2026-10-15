@@ -47,6 +47,8 @@ export class UnoEngine {
     this.stackedDrawType = null;
     this.lastWildDraw4Info = null;
     this.pendingWildDraw4Info = null;
+    this.wild4ChallengeAnim = null;
+    this.pendingChallengeResolution = null;
 
     this.isContinuousDrawing = false;
     this.drawingPlayerIndex = null;
@@ -499,6 +501,8 @@ export class UnoEngine {
         targetColorName: this.colorNames[prevColor] || prevColor,
         hasMatchingCard: matchingCards.length > 0,
         matchingCardNames: matchingCards.map(c => this.getCardDisplayName(c)),
+        matchingCardIds: matchingCards.map(c => c.id),
+        challengedHandSnapshot: player.hand.filter(c => c.id !== card.id).map(c => ({ ...c })),
         priorStackedCount: this.stackedDrawCount || 0
       };
     } else {
@@ -1118,42 +1122,116 @@ export class UnoEngine {
     const info = this.lastWildDraw4Info;
     const challengedPlayer = this.players[info.playerIndex];
     const challenger = this.players[challengerIndex];
+    if (!challengedPlayer || !challenger) {
+      return { success: false, reason: '玩家資訊異常' };
+    }
 
-    if (info.hasMatchingCard) {
-      this.drawCardsForPlayer(info.playerIndex, 4);
+    const isSuccess = info.hasMatchingCard;
+    const handCards = (info.challengedHandSnapshot && info.challengedHandSnapshot.length > 0)
+      ? info.challengedHandSnapshot
+      : challengedPlayer.hand.map(c => ({ ...c }));
+    const matchingCardIds = info.matchingCardIds || [];
+
+    // 進入質疑驗牌演出鎖定，不讓計時器跑動或提早出牌
+    this.isContinuousDrawing = true;
+    this.turnStartTime = null;
+
+    this.wild4ChallengeAnim = {
+      challengerId: challengerIndex,
+      challengerName: challenger.name,
+      challengedId: info.playerIndex,
+      challengedName: challengedPlayer.name,
+      targetColorName: info.targetColorName,
+      isSuccess,
+      handCards,
+      matchingCardIds,
+      timestamp: Date.now()
+    };
+
+    // 暫存結算資料，等待 2450ms 驗牌動畫播放完畢後再行結算罰抽
+    this.pendingChallengeResolution = {
+      challengerIndex,
+      challengedIndex: info.playerIndex,
+      isSuccess,
+      info: { ...info }
+    };
+
+    this.addLog(`⚖️ 【${challenger.name}】對【${challengedPlayer.name}】的 +4 提出質疑！驗牌檢視中...`);
+
+    this.lastAction = {
+      type: 'challenge_wild4_started',
+      challengerIndex,
+      challengedIndex: info.playerIndex,
+      isSuccess,
+      timestamp: Date.now()
+    };
+
+    return {
+      success: true,
+      isSuccess,
+      animDuration: 2450
+    };
+  }
+
+  resolveWildDraw4ChallengePenalty() {
+    if (!this.pendingChallengeResolution) return { success: false };
+    const { challengerIndex, challengedIndex, isSuccess, info } = this.pendingChallengeResolution;
+    this.pendingChallengeResolution = null;
+    this.wild4ChallengeAnim = null;
+
+    const challengedPlayer = this.players[challengedIndex];
+    const challenger = this.players[challengerIndex];
+    if (!challengedPlayer || !challenger) return { success: false };
+
+    if (isSuccess) {
+      // 質疑成功：被質疑者違規，被質疑者抽 4 張
+      const drawnCards = this.drawCardsForPlayer(challengedIndex, 4);
       const priorCount = info.priorStackedCount || 0;
-      
-      let msg = `⚖️ 【${challenger.name}】質疑成功！【${challengedPlayer.name}】手牌中明明有【${info.targetColorName}】的牌 (${info.matchingCardNames.join('、')})，違規出 +4！${challengedPlayer.name} 被罰抽 4 張！`;
+
+      let msg = `⚖️ 【${challenger.name}】質疑成功！【${challengedPlayer.name}】當時手牌中明明有【${info.targetColorName}】的牌 (${info.matchingCardNames.join('、')})，違規出 +4！${challengedPlayer.name} 被罰抽 4 張！`;
 
       this.lastWildDraw4Info = null;
       this.stackedDrawCount = 0;
       this.stackedDrawType = null;
       this.hasDrawnThisTurn = false;
 
+      let drawnCount = 4;
+      let penaltyTargetIndex = challengedIndex;
+      let nextPlayerTurn = challengerIndex;
+
       if (priorCount > 0) {
         this.drawCardsForPlayer(challengerIndex, priorCount);
+        drawnCount += priorCount;
+        penaltyTargetIndex = challengerIndex;
         msg += ` 但先前累積的罰抽 (+${priorCount} 張) 仍由 ${challenger.name} 承受，回合結束！`;
         this.addLog(msg);
         this.advanceTurn(1);
-        return {
-          success: true,
-          challengedWon: false,
-          priorCount,
-          msg
-        };
+        nextPlayerTurn = this.currentTurn;
       } else {
         msg += ` ${challenger.name} 免受罰抽，回合繼續，請出牌或抽牌！`;
         this.addLog(msg);
         this.turnStartTime = Date.now();
         this.turnDuration = this.getActiveTurnDuration();
-        return {
-          success: true,
-          challengedWon: false,
-          priorCount: 0,
-          msg
-        };
       }
+
+      this.lastAction = {
+        type: 'challenge_wild4_penalty',
+        penaltyTargetIndex,
+        drawnCount,
+        isSuccess: true,
+        timestamp: Date.now()
+      };
+
+      return {
+        success: true,
+        challengedWon: false,
+        drawnCount,
+        penaltyTargetIndex,
+        nextPlayerTurn,
+        msg
+      };
     } else {
+      // 質疑失敗：被質疑者無罪，質疑者承受原有罰抽 + 額外 2 張
       const totalPenalty = (this.stackedDrawCount || 4) + 2;
       this.drawCardsForPlayer(challengerIndex, totalPenalty);
 
@@ -1166,9 +1244,20 @@ export class UnoEngine {
       this.hasDrawnThisTurn = false;
       this.advanceTurn(1);
 
+      this.lastAction = {
+        type: 'challenge_wild4_penalty',
+        penaltyTargetIndex: challengerIndex,
+        drawnCount: totalPenalty,
+        isSuccess: false,
+        timestamp: Date.now()
+      };
+
       return {
         success: true,
         challengedWon: true,
+        drawnCount: totalPenalty,
+        penaltyTargetIndex: challengerIndex,
+        nextPlayerTurn: this.currentTurn,
         penalty: totalPenalty,
         msg
       };
@@ -1368,6 +1457,7 @@ export class UnoEngine {
         !this.isContinuousDrawing &&
         this.gameStatus === 'playing',
       lastWildDraw4PlayerName: this.lastWildDraw4Info ? this.lastWildDraw4Info.playerName : null,
+      wild4ChallengeAnim: this.wild4ChallengeAnim ? { ...this.wild4ChallengeAnim } : null,
       gameStatus: this.gameStatus,
       isDealing: !!this.isDealing,
       winner: this.winner ? {

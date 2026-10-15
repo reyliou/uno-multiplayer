@@ -5,6 +5,7 @@ import { CardView } from './CardView';
 import { OpponentHand3D } from './table/OpponentHand3D';
 import { PlayerInfoPill } from './table/PlayerInfoPill';
 import { WildColorModal } from './table/WildColorModal';
+import { Wild4ChallengeOverlay } from './table/Wild4ChallengeOverlay';
 import {
   Volume2,
   VolumeX,
@@ -118,7 +119,8 @@ export function GameTableView({
     deckTheme = 'classic',
     hurryUpTurns = 0,
     explosiveActive = false,
-    vanishingCardId = null
+    vanishingCardId = null,
+    wild4ChallengeAnim = null
   } = gameState || {};
 
   const is2v2 = gameMode === '2v2';
@@ -191,6 +193,19 @@ export function GameTableView({
   const rightPlayer = rightSeatIdx !== null ? players[rightSeatIdx] : null;
 
   const isTeammateTop = is2v2 && topSeatIdx === teammateIndex;
+
+  let challengeSeatDirection = 'top';
+  if (wild4ChallengeAnim) {
+    if (wild4ChallengeAnim.challengedId === myIndex) {
+      challengeSeatDirection = 'me';
+    } else if (wild4ChallengeAnim.challengedId === leftSeatIdx) {
+      challengeSeatDirection = 'left';
+    } else if (wild4ChallengeAnim.challengedId === rightSeatIdx) {
+      challengeSeatDirection = 'right';
+    } else {
+      challengeSeatDirection = 'top';
+    }
+  }
 
   const getPlayerRef = (seatIdx) => {
     if (seatIdx === myIndex) return myHandRef.current;
@@ -354,7 +369,7 @@ export function GameTableView({
       setDisplayedHand(myHand);
     } else if (myHand.length > displayedHand.length) {
       const newCards = myHand.filter(c => !displayedHand.some(dh => dh.id === c.id) && !inflightCardIdsRef.current.has(c.id));
-      if (newCards.length > 0 && lastAction && (lastAction.type === 'draw_step' || lastAction.type === 'draw_finished' || lastAction.type === 'penalty_finish' || lastAction.card?.value === 'rabbids_comin_through' || lastAction.card?.value === 'rabbids_wild_shield')) {
+      if (newCards.length > 0 && lastAction && (lastAction.type === 'draw_step' || lastAction.type === 'draw_finished' || lastAction.type === 'penalty_finish' || lastAction.card?.value === 'rabbids_comin_through' || lastAction.card?.value === 'rabbids_wild_shield' || lastAction.type === 'challenge_wild4_penalty')) {
         newCards.forEach((c, idx) => {
           inflightCardIdsRef.current.add(c.id);
           setTimeout(() => {
@@ -1035,47 +1050,74 @@ export function GameTableView({
           </div>
 
           {/* Straight Level Hand Cards */}
-          <div
-            ref={myHandRef}
-            className="w-full max-w-4xl px-4 pt-1 pb-1 overflow-visible flex items-center justify-center min-h-[125px]"
-          >
-            <div className="flex items-center justify-center -space-x-5 sm:-space-x-6 md:-space-x-7 overflow-visible transition-all">
-              {handToDisplay.map((card, idx) => {
-                const isPlayable = isMyTurn && validCards.includes(card.id);
-                const translateY = isHandCollapsed ? 16 : (isMyTurn ? 0 : 8);
-                const scale = isMyTurn ? (isHandCollapsed ? 0.94 : 1) : 0.95;
+          {(() => {
+            const isMeChallenged = wild4ChallengeAnim && wild4ChallengeAnim.challengedId === myIndex;
 
-                return (
-                  <div
-                    key={card.id}
-                    style={{
-                      transform: `translateY(${translateY}px) scale(${scale})`,
-                      transformOrigin: 'bottom center',
-                      filter: (isDealing || isContinuousDrawing)
-                        ? 'brightness(0.7) saturate(80%)'
-                        : (isMyTurn ? 'brightness(1) saturate(100%)' : 'brightness(0.68) saturate(85%)'),
-                      transitionProperty: 'transform, filter',
-                      transitionDuration: '320ms',
-                      transitionTimingFunction: 'cubic-bezier(0.34, 1.4, 0.64, 1)',
-                      transitionDelay: isHandCollapsed ? '0ms' : `${idx * 20}ms`,
-                      pointerEvents: isMyTurn ? 'auto' : 'none'
-                    }}
-                    className={`overflow-visible transition-transform duration-200 ${
-                      isMyTurn ? 'hover:z-40 hover:!-translate-y-5 cursor-pointer' : 'select-none'
-                    }`}
-                  >
-                    <CardView
-                      deckTheme={deckTheme}
-                      card={card}
-                      isPlayable={isPlayable}
-                      onClick={(e) => handleCardClick(card, e?.currentTarget)}
-                      className="shadow-2xl"
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+            return (
+              <div
+                ref={myHandRef}
+                className={`w-full max-w-4xl px-4 pt-1 pb-1 overflow-visible flex items-center justify-center min-h-[125px] ${
+                  isMeChallenged && !wild4ChallengeAnim.isSuccess ? 'challenge-hand-shake' : ''
+                }`}
+              >
+                <div className="flex items-center justify-center -space-x-5 sm:-space-x-6 md:-space-x-7 overflow-visible transition-all">
+                  {handToDisplay.map((card, idx) => {
+                    const isPlayable = isMyTurn && validCards.includes(card.id);
+                    const isCulpritCard = isMeChallenged && wild4ChallengeAnim.matchingCardIds?.includes(card.id);
+
+                    let translateY = isHandCollapsed ? 16 : (isMyTurn ? 0 : 8);
+                    let scale = isMyTurn ? (isHandCollapsed ? 0.94 : 1) : 0.95;
+                    let filter = (isDealing || isContinuousDrawing)
+                      ? 'brightness(0.7) saturate(80%)'
+                      : (isMyTurn ? 'brightness(1) saturate(100%)' : 'brightness(0.68) saturate(85%)');
+
+                    if (isMeChallenged) {
+                      if (isCulpritCard) {
+                        translateY = -28;
+                        scale = 1.15;
+                        filter = 'brightness(1.25) drop-shadow(0 0 18px rgba(34, 197, 94, 0.95))';
+                      } else if (wild4ChallengeAnim.isSuccess) {
+                        filter = 'brightness(0.35) saturate(50%)';
+                      }
+                    }
+
+                    return (
+                      <div
+                        key={card.id}
+                        style={{
+                          transform: `translateY(${translateY}px) scale(${scale})`,
+                          transformOrigin: 'bottom center',
+                          filter,
+                          transitionProperty: 'transform, filter',
+                          transitionDuration: '320ms',
+                          transitionTimingFunction: 'cubic-bezier(0.34, 1.4, 0.64, 1)',
+                          transitionDelay: isHandCollapsed ? '0ms' : `${idx * 20}ms`,
+                          pointerEvents: isMyTurn ? 'auto' : 'none',
+                          zIndex: isCulpritCard ? 45 : undefined
+                        }}
+                        className={`relative overflow-visible transition-transform duration-200 ${
+                          isMyTurn ? 'hover:z-40 hover:!-translate-y-5 cursor-pointer' : 'select-none'
+                        }`}
+                      >
+                        {isCulpritCard && (
+                          <div className="absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap px-2 py-0.5 rounded-md bg-green-500 text-black text-[10px] font-black shadow-[0_0_12px_rgba(34,197,94,0.9)] animate-bounce z-50">
+                            違規同色
+                          </div>
+                        )}
+                        <CardView
+                          deckTheme={deckTheme}
+                          card={card}
+                          isPlayable={isPlayable}
+                          onClick={(e) => handleCardClick(card, e?.currentTarget)}
+                          className={isCulpritCard ? 'shadow-[0_0_25px_rgba(34,197,94,0.95)] ring-2 ring-green-400' : 'shadow-2xl'}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
         </div>
 
         {/* Wild Color Picker Modal */}
@@ -1085,6 +1127,14 @@ export function GameTableView({
           turnDuration={turnDuration || 6}
           myColorCounts={myColorCounts}
           onSelectColor={handleConfirmWildColor}
+        />
+
+        {/* Wild 4 Challenge Inspection & Verdict Overlay */}
+        <Wild4ChallengeOverlay
+          wild4ChallengeAnim={wild4ChallengeAnim}
+          myIndex={myIndex}
+          seatDirection={challengeSeatDirection}
+          deckTheme={deckTheme}
         />
       </main>
 
