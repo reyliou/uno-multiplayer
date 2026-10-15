@@ -50,7 +50,10 @@ export function HomeView({ onCreateRoom, onJoinRoom }) {
   };
 
   return (
-    <div className="relative min-h-[100dvh] felt-table flex items-center justify-center p-4 overflow-hidden select-none">
+    <div
+      className="fixed inset-0 felt-table overflow-y-auto overflow-x-hidden select-none z-30 flex flex-col items-center p-4 py-8 pb-12 custom-scrollbar"
+      style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}
+    >
       {/* Ambient Casino Spotlight & Table Rim Vignette */}
       <div
         className="pointer-events-none fixed inset-0"
@@ -85,7 +88,7 @@ export function HomeView({ onCreateRoom, onJoinRoom }) {
       </div>
 
       {/* Main Casino Wood & Gold Framed Panel */}
-      <div className="relative z-10 w-full max-w-md rounded-3xl bg-gradient-to-b from-[#133822]/95 via-[#0b2315]/98 to-[#06140c] border-2 border-amber-500/40 shadow-[0_28px_70px_rgba(0,0,0,0.9),0_0_0_6px_rgba(38,23,12,0.95)] p-6 sm:p-8 backdrop-blur-xl">
+      <div className="relative z-10 w-full max-w-md my-auto rounded-3xl bg-gradient-to-b from-[#133822]/95 via-[#0b2315]/98 to-[#06140c] border-2 border-amber-500/40 shadow-[0_28px_70px_rgba(0,0,0,0.9),0_0_0_6px_rgba(38,23,12,0.95)] p-6 sm:p-8 backdrop-blur-xl shrink-0">
         {/* Subtle Inner Gold Hairline */}
         <div className="pointer-events-none absolute inset-2.5 rounded-2xl border border-amber-400/15" />
 
