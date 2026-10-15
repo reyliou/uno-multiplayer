@@ -1552,7 +1552,26 @@ export class UnoEngine {
         !this.isContinuousDrawing &&
         this.gameStatus === 'playing',
       lastWildDraw4PlayerName: this.lastWildDraw4Info ? this.lastWildDraw4Info.playerName : null,
-      wild4ChallengeAnim: this.wild4ChallengeAnim ? { ...this.wild4ChallengeAnim } : null,
+      wild4ChallengeAnim: (() => {
+        if (!this.wild4ChallengeAnim) return null;
+        const isChallenger = !isSpectator && viewIndex === this.wild4ChallengeAnim.challengerId;
+        const isChallenged = !isSpectator && viewIndex === this.wild4ChallengeAnim.challengedId;
+        if (isChallenger || isChallenged) {
+          return { ...this.wild4ChallengeAnim };
+        }
+        // 第三方其他玩家與觀戰者：依 UNO 正規規則手牌僅對質疑者公開，其餘人一律只看見牌背！
+        return {
+          ...this.wild4ChallengeAnim,
+          handCards: (this.wild4ChallengeAnim.handCards || []).map(c => ({
+            id: c.id,
+            color: 'wild',
+            value: 'card_back',
+            assetKey: 'card_back',
+            displayAssetKey: 'card_back'
+          })),
+          matchingCardIds: []
+        };
+      })(),
       gameStatus: this.gameStatus,
       isDealing: !!this.isDealing,
       winner: this.winner ? {

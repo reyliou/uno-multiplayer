@@ -13,6 +13,8 @@ export function Wild4ChallengeOverlay({
   if (!wild4ChallengeAnim) return null;
 
   const {
+    challengerId,
+    challengerName,
     challengedId,
     isSuccess,
     handCards = [],
@@ -20,6 +22,7 @@ export function Wild4ChallengeOverlay({
   } = wild4ChallengeAnim;
 
   const isMeChallenged = challengedId === myIndex || seatDirection === 'me';
+  const isMeChallenger = challengerId === myIndex;
 
   const transportClass =
     seatDirection === 'left'
@@ -71,7 +74,7 @@ export function Wild4ChallengeOverlay({
           }`}
         >
           {handCards.map((card, idx) => {
-            const isCulprit = matchingCardIds.includes(card.id);
+            const isCulprit = isMeChallenger && matchingCardIds.includes(card.id);
 
             return (
               <div
@@ -93,6 +96,13 @@ export function Wild4ChallengeOverlay({
             );
           })}
         </div>
+
+        {/* 若本人為第三方其他玩家（非質疑者）：提示手牌隱私保護 */}
+        {!isMeChallenger && !isMeChallenged && (
+          <div className="mt-2.5 px-3.5 py-1 rounded-full bg-black/80 border border-white/20 text-xs font-bold text-gray-300 shadow-lg backdrop-blur-md flex items-center gap-1.5 animate-pulse">
+            <span>🔒 驗牌中：手牌依規則僅對質疑者【{challengerName || '質疑者'}】公開</span>
+          </div>
+        )}
       </div>
     </div>
   );
