@@ -19,7 +19,8 @@ import {
   UserCheck,
   Swords,
   Sparkles,
-  LogOut
+  LogOut,
+  Eye
 } from 'lucide-react';
 import { soundManager } from '../services/sound';
 import { cardAnimationService } from '../services/animation';
@@ -120,12 +121,15 @@ export function GameTableView({
     hurryUpTurns = 0,
     explosiveActive = false,
     vanishingCardId = null,
-    wild4ChallengeAnim = null
+    wild4ChallengeAnim = null,
+    plusIndicator = null,
+    isSpectator = false,
+    spectators = []
   } = gameState || {};
 
   const is2v2 = gameMode === '2v2';
-  const isForcedPenalty = stackedDrawCount > 0 && validCards.length === 0 && !canChallengeWildDraw4;
-  const isMyTurn = currentTurn === myIndex && !isContinuousDrawing && !isDealing && !isForcedPenalty;
+  const isForcedPenalty = !isSpectator && stackedDrawCount > 0 && validCards.length === 0 && !canChallengeWildDraw4;
+  const isMyTurn = !isSpectator && currentTurn === myIndex && !isContinuousDrawing && !isDealing && !isForcedPenalty;
 
   const [displayedHand, setDisplayedHand] = useState(myHand);
   const [displayedCounts, setDisplayedCounts] = useState({});
@@ -213,6 +217,18 @@ export function GameTableView({
     if (seatIdx === topSeatIdx) return topPlayerRef.current;
     if (seatIdx === rightSeatIdx) return rightPlayerRef.current;
     return null;
+  };
+
+  const renderHandPlusBadge = (playerId, positionClass = '-top-11 left-1/2 -translate-x-1/2') => {
+    if (!plusIndicator || plusIndicator.playerId !== playerId || !plusIndicator.count) return null;
+    return (
+      <div
+        key={`plus-${playerId}-${plusIndicator.count}`}
+        className={`absolute ${positionClass} z-50 uno-plus-indicator text-4xl sm:text-5xl pointer-events-none select-none`}
+      >
+        +{plusIndicator.count}
+      </div>
+    );
   };
 
   // Opening Deal Animation
@@ -578,6 +594,20 @@ export function GameTableView({
             <span>{is2v2 ? '2V2 雙人組隊戰' : '多人混戰'}</span>
           </div>
 
+          {isSpectator && (
+            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-sky-500/20 border border-sky-400/50 text-sky-300 font-bold text-xs shadow-[0_0_15px_rgba(56,189,248,0.3)] animate-pulse">
+              <Eye className="w-3.5 h-3.5 text-sky-400" />
+              <span>觀戰中</span>
+            </div>
+          )}
+
+          {spectators && spectators.length > 0 && (
+            <div className="hidden lg:flex items-center gap-1 px-2.5 py-1 rounded-full bg-black/40 border border-white/10 text-xs text-gray-400" title={`觀戰者: ${spectators.map(s => s.name).join(', ')}`}>
+              <Eye className="w-3.5 h-3.5 text-gray-400" />
+              <span>{spectators.length} 人觀戰</span>
+            </div>
+          )}
+
           {targetScore > 0 ? (
             <div className="hidden md:flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-400/25 text-xs text-amber-300 font-bold">
               <span>🏆 目標 {targetScore} 分</span>
@@ -639,6 +669,7 @@ export function GameTableView({
             ref={topPlayerRef}
             className="absolute top-3 sm:top-5 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-1.5 pointer-events-auto"
           >
+            {renderHandPlusBadge(topPlayer.id, '-bottom-10 left-1/2 -translate-x-1/2')}
             <PlayerInfoPill
               player={topPlayer}
               cardCount={displayedCounts[topPlayer.id] !== undefined ? displayedCounts[topPlayer.id] : topPlayer.cardCount}
@@ -686,6 +717,7 @@ export function GameTableView({
             ref={leftPlayerRef}
             className="absolute left-[5%] sm:left-[9%] md:left-[11.5%] top-[43%] -translate-y-1/2 z-20 flex flex-col items-center gap-1.5 pointer-events-auto"
           >
+            {renderHandPlusBadge(leftPlayer.id, '-top-9 left-1/2 -translate-x-1/2')}
             <PlayerInfoPill
               player={leftPlayer}
               cardCount={displayedCounts[leftPlayer.id] !== undefined ? displayedCounts[leftPlayer.id] : leftPlayer.cardCount}
@@ -728,6 +760,7 @@ export function GameTableView({
             ref={rightPlayerRef}
             className="absolute right-[5%] sm:right-[9%] md:right-[11.5%] top-[43%] -translate-y-1/2 z-20 flex flex-col items-center gap-1.5 pointer-events-auto"
           >
+            {renderHandPlusBadge(rightPlayer.id, '-top-9 left-1/2 -translate-x-1/2')}
             <PlayerInfoPill
               player={rightPlayer}
               cardCount={displayedCounts[rightPlayer.id] !== undefined ? displayedCounts[rightPlayer.id] : rightPlayer.cardCount}
@@ -918,12 +951,12 @@ export function GameTableView({
         <div className="absolute bottom-4 sm:bottom-6 left-0 right-0 z-30 flex flex-col items-center pointer-events-auto">
           <div className="w-full max-w-4xl flex items-center justify-between px-6 mb-1.5">
             <PlayerInfoPill
-              player={{ ...myPlayer, name: myPlayer.name || '你 (玩家)' }}
-              cardCount={displayedHand.length}
-              avatar="👤"
-              isLocal
+              player={isSpectator ? myPlayer : { ...myPlayer, name: myPlayer.name || '你 (玩家)' }}
+              cardCount={isSpectator ? (displayedCounts[myPlayer.id] !== undefined ? displayedCounts[myPlayer.id] : (myPlayer.cardCount || 0)) : displayedHand.length}
+              avatar={isSpectator ? (myPlayer.isHost ? '👑' : (myPlayer.isAi ? '🤖' : '👤')) : '👤'}
+              isLocal={!isSpectator}
               isHost={isHost}
-              isActiveTurn={currentTurn === myIndex && !isDealing && !isContinuousDrawing}
+              isActiveTurn={!isSpectator && currentTurn === myIndex && !isDealing && !isContinuousDrawing}
               isSkipped={skippedPlayerInfo && skippedPlayerInfo.playerId === myIndex}
               isChoosingColor={isChoosingColor && colorChoosingPlayerIndex === myIndex}
               isContinuousDrawing={isContinuousDrawing && drawingPlayerIndex === myIndex}
@@ -932,21 +965,29 @@ export function GameTableView({
               turnStartTime={turnStartTime}
               turnDuration={turnDuration || (isChoosingColor ? 6 : 15)}
               timerPosition="right"
+              onKickPlayer={onKickPlayer}
             />
 
             {/* Action Buttons Group */}
             <div className="flex items-center gap-2 sm:gap-2.5">
-              <button
-                type="button"
-                onClick={handleSortHand}
-                title="依顏色與數字整理手牌並重新展開"
-                className="py-1.5 px-3 sm:px-3.5 rounded-full bg-emerald-950/90 hover:bg-emerald-900 border border-emerald-400/40 text-emerald-300 font-bold text-xs shadow-md transition active:scale-95 flex items-center gap-1"
-              >
-                <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                <span>整理手牌</span>
-              </button>
+              {!isSpectator && (
+                <button
+                  type="button"
+                  onClick={handleSortHand}
+                  title="依顏色與數字整理手牌並重新展開"
+                  className="py-1.5 px-3 sm:px-3.5 rounded-full bg-emerald-950/90 hover:bg-emerald-900 border border-emerald-400/40 text-emerald-300 font-bold text-xs shadow-md transition active:scale-95 flex items-center gap-1"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                  <span>整理手牌</span>
+                </button>
+              )}
 
-              {isDealing ? (
+              {isSpectator ? (
+                <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-sky-950/80 border border-sky-400/40 text-sky-300 font-bold text-xs shadow-lg animate-pulse">
+                  <Eye className="w-4 h-4 text-sky-400" />
+                  <span>觀戰視角 (座席: {myPlayer.name})</span>
+                </div>
+              ) : isDealing ? (
                 <span className="text-xs text-amber-300 font-bold px-3.5 py-1.5 rounded-full bg-amber-500/15 border border-amber-400/30 flex items-center gap-1.5 animate-pulse">
                   <RotateCw className="w-3.5 h-3.5 animate-spin text-amber-400" />
                   <span>開局發牌中...</span>
@@ -1042,15 +1083,38 @@ export function GameTableView({
 
           {/* Straight Level Hand Cards */}
           {(() => {
+            if (isSpectator) {
+              return (
+                <div
+                  ref={myHandRef}
+                  className="relative w-full max-w-4xl px-4 pt-1 pb-1 flex flex-col items-center justify-center min-h-[125px]"
+                >
+                  {renderHandPlusBadge(myPlayer.id, '-top-10 left-1/2 -translate-x-1/2')}
+                  <div className="flex flex-col items-center gap-2">
+                    <OpponentHand3D
+                      side="top"
+                      count={displayedCounts[myPlayer.id] !== undefined ? displayedCounts[myPlayer.id] : (myPlayer.cardCount || 0)}
+                      deckTheme={deckTheme}
+                    />
+                    <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/60 border border-sky-500/30 text-[11px] text-sky-300/90 backdrop-blur-sm">
+                      <Eye className="w-3 h-3 text-sky-400" />
+                      <span>觀戰中：本席手牌不公開</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+
             const isMeChallenged = wild4ChallengeAnim && wild4ChallengeAnim.challengedId === myIndex;
 
             return (
               <div
                 ref={myHandRef}
-                className={`w-full max-w-4xl px-4 pt-1 pb-1 overflow-visible flex items-center justify-center min-h-[125px] ${
+                className={`relative w-full max-w-4xl px-4 pt-1 pb-1 overflow-visible flex items-center justify-center min-h-[125px] ${
                   isMeChallenged && !wild4ChallengeAnim.isSuccess ? 'challenge-hand-shake' : ''
                 }`}
               >
+                {renderHandPlusBadge(myIndex, '-top-12 left-1/2 -translate-x-1/2')}
                 <div className="flex items-center justify-center -space-x-5 sm:-space-x-6 md:-space-x-7 overflow-visible transition-all">
                   {handToDisplay.map((card, idx) => {
                     const isPlayable = isMyTurn && validCards.includes(card.id);

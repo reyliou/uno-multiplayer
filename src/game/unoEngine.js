@@ -49,6 +49,7 @@ export class UnoEngine {
     this.pendingWildDraw4Info = null;
     this.wild4ChallengeAnim = null;
     this.pendingChallengeResolution = null;
+    this.activePenaltyBanner = null;
 
     this.isContinuousDrawing = false;
     this.drawingPlayerIndex = null;
@@ -155,6 +156,7 @@ export class UnoEngine {
   // 當兔兔盾牌反彈罰抽時，將牌發給下一位玩家（下家），但保留下家的出牌回合！
   executeShieldDeflectDraw(victimIndex, count) {
     if (count <= 0 || !this.players[victimIndex]) return [];
+    this.activePenaltyBanner = { playerId: victimIndex, count };
     const drawn = this.drawCardsForPlayer(victimIndex, count);
     this.addLog(`🛡️ 兔兔盾牌反彈生效！【${this.players[victimIndex].name}】承受了 +${count} 張反彈抽牌，現在輪到 ${this.players[victimIndex].name} 出牌！`);
     return drawn;
@@ -463,6 +465,7 @@ export class UnoEngine {
     if (!this.explosiveActive) return 0;
     this.explosiveActive = false;
     const player = this.players[playerIndex];
+    this.activePenaltyBanner = { playerId: playerIndex, count: 4 };
     this.drawCardsForPlayer(playerIndex, 4);
     if (player) {
       this.addLog(`💥 轟！！！瘋狂定時炸彈在【${player.name}】抽牌時引爆！額外炸飛多抽 +4 張牌！`);
@@ -943,6 +946,7 @@ export class UnoEngine {
   finishPenaltyDraw(playerIndex, count) {
     const player = this.players[playerIndex];
     if (!player) return;
+    this.activePenaltyBanner = null;
     this.stackedDrawCount = 0;
     this.stackedDrawType = null;
     this.lastWildDraw4Info = null;
@@ -1101,6 +1105,7 @@ export class UnoEngine {
   challengeUno(challengerIndex, targetIndex) {
     const target = this.players[targetIndex];
     if (target && target.hand.length === 1 && target.unoVulnerable) {
+      this.activePenaltyBanner = { playerId: targetIndex, count: 2 };
       this.drawCardsForPlayer(targetIndex, 2);
       target.calledUno = false;
       target.unoVulnerable = false;
@@ -1188,6 +1193,7 @@ export class UnoEngine {
 
     if (isSuccess) {
       // 質疑成功：被質疑者違規，被質疑者抽 4 張
+      this.activePenaltyBanner = { playerId: challengedIndex, count: 4 };
       const drawnCards = this.drawCardsForPlayer(challengedIndex, 4);
       const priorCount = info.priorStackedCount || 0;
 
@@ -1236,6 +1242,7 @@ export class UnoEngine {
     } else {
       // 質疑失敗：被質疑者無罪，質疑者承受原有罰抽 + 額外 2 張
       const totalPenalty = (this.stackedDrawCount || 4) + 2;
+      this.activePenaltyBanner = { playerId: challengerIndex, count: totalPenalty };
       this.drawCardsForPlayer(challengerIndex, totalPenalty);
 
       const msg = `⚖️ 【${challenger.name}】質疑失敗！【${challengedPlayer.name}】當時確實無【${info.targetColorName}】的手牌！${challenger.name} 承受所有罰抽加罰 2 張 (共抽 ${totalPenalty} 張) 並跳過回合！`;
@@ -1344,7 +1351,8 @@ export class UnoEngine {
     if (this.log.length > 50) this.log.pop();
   }
 
-  getClientState(playerIndex) {
+  getClientState(playerIndex = 0, isSpectator = false) {
+    const viewIndex = isSpectator ? 0 : playerIndex;
     const top = this.getTopCard();
     let topDisplayKey = top ? (top.displayAssetKey || top.assetKey) : 'card_back';
     if (top && top.color === 'wild') {
@@ -1365,7 +1373,7 @@ export class UnoEngine {
       }
     }
 
-    const teammateIndex = this.gameMode === '2v2' ? (playerIndex + 2) % 4 : null;
+    const teammateIndex = (!isSpectator && this.gameMode === '2v2') ? (viewIndex + 2) % 4 : null;
     const teammatePlayer = teammateIndex !== null ? this.players[teammateIndex] : null;
 
     const sanitizeHandCard = (c) => {
@@ -1376,7 +1384,23 @@ export class UnoEngine {
       return c;
     };
 
+    // 計算目前哪位玩家的手牌上方要顯示黑框白底「+幾」
+    let plusIndicator = null;
+    if (this.activePenaltyBanner && this.activePenaltyBanner.count > 0) {
+      plusIndicator = {
+        playerId: this.activePenaltyBanner.playerId,
+        count: this.activePenaltyBanner.count
+      };
+    } else if (this.stackedDrawCount > 0) {
+      plusIndicator = {
+        playerId: this.currentTurn,
+        count: this.stackedDrawCount
+      };
+    }
+
     return {
+      isSpectator: !!isSpectator,
+      plusIndicator,
       deckTheme: this.deckTheme || 'classic',
       hurryUpTurns: this.hurryUpTurns || 0,
       explosiveActive: !!this.explosiveActive,
@@ -1390,7 +1414,7 @@ export class UnoEngine {
       isContinuousDrawing: !!this.isContinuousDrawing,
       drawingPlayerIndex: this.drawingPlayerIndex !== undefined ? this.drawingPlayerIndex : null,
       drawingStepCount: this.drawingStepCount || 0,
-      myIndex: playerIndex,
+      myIndex: viewIndex,
       teammateIndex,
       teammateHand: teammatePlayer ? teammatePlayer.hand.map(sanitizeHandCard) : [],
       players: this.players.map(p => ({
@@ -1406,8 +1430,8 @@ export class UnoEngine {
         timeoutCount: p.timeoutCount || 0,
         score: p.score
       })),
-      myHand: this.players[playerIndex] ? this.players[playerIndex].hand.map(sanitizeHandCard) : [],
-      validCards: this.getValidCardsForPlayer(playerIndex).map(c => c.id),
+      myHand: (!isSpectator && this.players[viewIndex]) ? this.players[viewIndex].hand.map(sanitizeHandCard) : [],
+      validCards: (!isSpectator) ? this.getValidCardsForPlayer(viewIndex).map(c => c.id) : [],
       topCard: top ? {
         ...top,
         displayAssetKey: topDisplayKey
@@ -1451,9 +1475,10 @@ export class UnoEngine {
       stackedDrawType: this.stackedDrawType,
       allowStacking: this.allowStacking,
       allowChallengeWildDraw4: !!this.allowChallengeWildDraw4,
-      canChallengeWildDraw4: !!this.allowChallengeWildDraw4 &&
+      canChallengeWildDraw4: !isSpectator &&
+        !!this.allowChallengeWildDraw4 &&
         !!this.lastWildDraw4Info &&
-        this.currentTurn === playerIndex &&
+        this.currentTurn === viewIndex &&
         this.stackedDrawType === 'wild_draw4' &&
         !this.isDealing &&
         !this.isChoosingColor &&

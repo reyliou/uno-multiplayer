@@ -1,4 +1,5 @@
-// LobbyView.jsx - Casino Tabletop Seat Compass & House Rules Lobby
+// 檔案位置：src/components/LobbyView.jsx
+// Casino Tabletop Seat Compass, Spectator Section & House Rules Lobby
 import React, { useState } from 'react';
 import {
   Copy,
@@ -17,7 +18,8 @@ import {
   Layers,
   Scale,
   Settings2,
-  Sparkles
+  Sparkles,
+  Eye
 } from 'lucide-react';
 import { soundManager } from '../services/sound';
 
@@ -32,6 +34,8 @@ export function LobbyView({
   roomCode,
   isHost,
   players = [],
+  spectators = [],
+  isSpectator = false,
   gameMode = 'ffa',
   allowStacking,
   allowChallengeWildDraw4 = true,
@@ -48,6 +52,10 @@ export function LobbyView({
   onSetFfaCount,
   onSwapSlots,
   onKickPlayer,
+  onMoveToSpectator,
+  onMoveSpectatorToSlot,
+  onKickSpectator,
+  onClientToggleSpectate,
   onStartGame,
   onLeaveRoom
 }) {
@@ -87,7 +95,6 @@ export function LobbyView({
 
   return (
     <div className="relative min-h-[100dvh] felt-table flex items-center justify-center p-3 sm:p-6 overflow-y-auto select-none">
-      {/* Ambient Felt Spotlight */}
       <div
         className="pointer-events-none fixed inset-0"
         style={{
@@ -99,12 +106,9 @@ export function LobbyView({
       <div className="relative z-10 w-full max-w-3xl rounded-3xl bg-gradient-to-b from-[#133822]/95 via-[#0b2315]/98 to-[#06140c] border-2 border-amber-500/40 shadow-[0_28px_70px_rgba(0,0,0,0.9),0_0_0_6px_rgba(38,23,12,0.95)] p-5 sm:p-7 backdrop-blur-xl">
         <div className="pointer-events-none absolute inset-2.5 rounded-2xl border border-amber-400/15" />
 
-        {/* ============================================================== */}
-        {/* TOP HEADER: ROOM CODE TICKET & INVITE CONTROLS                 */}
-        {/* ============================================================== */}
+        {/* TOP HEADER */}
         <div className="relative flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-5 border-b border-emerald-500/20">
           <div className="flex items-center gap-3.5">
-            {/* Tilted UNO Mini Badge */}
             <div className="px-3.5 py-1.5 rounded-2xl bg-gradient-to-b from-red-500 to-red-700 border-2 border-amber-300 shadow-lg -rotate-3 shrink-0">
               <span className="font-black text-lg tracking-wider text-amber-300">
                 UNO!
@@ -141,8 +145,21 @@ export function LobbyView({
             </div>
           </div>
 
-          {/* Share Link & Leave Room Buttons */}
           <div className="flex items-center gap-2 w-full sm:w-auto">
+            {!isHost && onClientToggleSpectate && (
+              <button
+                type="button"
+                onClick={() => {
+                  soundManager.playTick();
+                  onClientToggleSpectate();
+                }}
+                className="py-2.5 px-3.5 rounded-xl bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-400/40 font-extrabold text-xs transition flex items-center justify-center gap-1.5 cursor-pointer shadow"
+              >
+                <Eye className="w-4 h-4" />
+                <span>{isSpectator ? '入座參戰' : '切換觀戰'}</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={handleCopyLink}
@@ -175,9 +192,7 @@ export function LobbyView({
           </div>
         </div>
 
-        {/* ============================================================== */}
-        {/* SECTION 1: TABLE SEATS COMPASS (Visualizing Opposite Teammates)*/}
-        {/* ============================================================== */}
+        {/* SECTION 1: TABLE SEATS COMPASS */}
         <div className="my-5">
           <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
             <div className="flex items-center gap-2">
@@ -206,7 +221,6 @@ export function LobbyView({
             )}
           </div>
 
-          {/* 4-Seat Grid with Clear Positional & Team Badges */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {players.map((p, idx) => {
               const isSelectedForSwap = swapSource === idx;
@@ -230,7 +244,6 @@ export function LobbyView({
                   } ${isHost ? 'cursor-pointer hover:border-amber-400/70' : ''}`}
                 >
                   <div className="flex items-center gap-3 min-w-0">
-                    {/* Seat Avatar */}
                     <div
                       className={`relative w-11 h-11 rounded-xl flex items-center justify-center font-bold border-2 shrink-0 shadow-md ${
                         p.isHost
@@ -254,7 +267,6 @@ export function LobbyView({
                       </span>
                     </div>
 
-                    {/* Player Name & Seat Position */}
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5">
                         <span className="text-[10px] font-mono font-extrabold text-emerald-400/80">
@@ -274,7 +286,7 @@ export function LobbyView({
                       </div>
 
                       <div className="font-extrabold text-white text-sm flex items-center gap-1.5 mt-0.5">
-                        <span className="truncate max-w-[130px]">{p.name}</span>
+                        <span className="truncate max-w-[120px]">{p.name}</span>
                         {p.isHost && (
                           <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-400 text-black font-black shrink-0">
                             房主
@@ -299,8 +311,22 @@ export function LobbyView({
 
                   {/* Host Seat Controls */}
                   {isHost && (
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      {!p.isHost && (
+                    <div className="flex items-center gap-1 shrink-0">
+                      {!p.isHost && !p.isAi && p.peerId && onMoveToSpectator && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            soundManager.playTick();
+                            onMoveToSpectator(idx);
+                          }}
+                          title="將此玩家移至觀戰席"
+                          className="text-[11px] py-1.5 px-2 rounded-xl font-extrabold bg-sky-950/90 hover:bg-sky-900 text-sky-300 border border-sky-500/40 transition cursor-pointer"
+                        >
+                          觀戰
+                        </button>
+                      )}
+                      {!p.isHost && (!p.peerId || p.isAi) && (
                         <button
                           type="button"
                           onClick={(e) => {
@@ -314,7 +340,7 @@ export function LobbyView({
                               : 'bg-amber-950/90 text-amber-300 border-amber-500/40 hover:bg-amber-900'
                           }`}
                         >
-                          {p.isAi ? '設為開放' : p.peerId ? '換成電腦' : '換成電腦'}
+                          {p.isAi ? '設為開放' : '換成電腦'}
                         </button>
                       )}
                       {!p.isHost && !p.isAi && p.peerId && onKickPlayer && (
@@ -328,7 +354,7 @@ export function LobbyView({
                             }
                           }}
                           title="將該玩家踢出房間"
-                          className="text-[11px] py-1.5 px-2.5 rounded-xl font-extrabold bg-red-950/90 hover:bg-red-900 text-red-300 border border-red-500/40 transition cursor-pointer"
+                          className="text-[11px] py-1.5 px-2 rounded-xl font-extrabold bg-red-950/90 hover:bg-red-900 text-red-300 border border-red-500/40 transition cursor-pointer"
                         >
                           踢除
                         </button>
@@ -354,11 +380,66 @@ export function LobbyView({
               );
             })}
           </div>
+
+          {/* SPECTATOR SEATS SECTION */}
+          <div className="mt-3 p-3.5 rounded-2xl bg-[#05120a]/90 border border-sky-500/25 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2 text-xs font-extrabold text-sky-300 shrink-0">
+              <Eye className="w-4 h-4 text-sky-400" />
+              <span>觀戰席位 ({spectators.length} 人)</span>
+              {isSpectator && (
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-sky-500/20 border border-sky-400/40 text-sky-200">
+                  你目前在觀戰席
+                </span>
+              )}
+            </div>
+
+            {spectators.length === 0 ? (
+              <span className="text-[11px] text-emerald-400/60">
+                目前無觀戰者（房間滿座時加入的好友，或點擊「觀戰」的玩家會自動進入此區）
+              </span>
+            ) : (
+              <div className="flex flex-wrap items-center gap-2">
+                {spectators.map((spec) => (
+                  <div
+                    key={spec.peerId}
+                    className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-sky-950/60 border border-sky-400/35 text-xs text-white font-bold"
+                  >
+                    <span>👀 {spec.name}</span>
+                    {isHost && onMoveSpectatorToSlot && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          soundManager.playTick();
+                          onMoveSpectatorToSlot(spec.peerId);
+                        }}
+                        className="ml-1 px-1.5 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-[10px] text-white font-black transition cursor-pointer"
+                        title="排入牌桌參戰"
+                      >
+                        入座
+                      </button>
+                    )}
+                    {isHost && onKickSpectator && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (window.confirm(`確定要將觀戰者【${spec.name}】移出房間嗎？`)) {
+                            onKickSpectator(spec.peerId);
+                          }
+                        }}
+                        className="px-1.5 py-0.5 rounded bg-red-800 hover:bg-red-700 text-[10px] text-red-100 font-black transition cursor-pointer"
+                        title="踢出房間"
+                      >
+                        踢除
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* ============================================================== */}
-        {/* SECTION 2: HOUSE RULES CONFIGURATION PANEL                     */}
-        {/* ============================================================== */}
+        {/* SECTION 2: HOUSE RULES CONFIGURATION PANEL */}
         <div className="my-5 p-4 sm:p-5 bg-[#05120a] border border-emerald-500/25 rounded-2xl space-y-4 shadow-inner">
           <div className="flex items-center gap-2 text-xs font-extrabold text-amber-300 tracking-wider uppercase">
             <Settings2 className="w-4 h-4" />
@@ -423,7 +504,6 @@ export function LobbyView({
 
           {/* Row 1: Mode & Player Count */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pb-3.5 border-b border-emerald-500/15">
-            {/* Game Mode */}
             <div className="flex items-center justify-between bg-[#081c10] p-2.5 rounded-xl border border-emerald-500/20">
               <span className="text-xs font-bold text-emerald-200 flex items-center gap-1.5">
                 <Swords className="w-3.5 h-3.5 text-amber-400" />
@@ -467,7 +547,6 @@ export function LobbyView({
               )}
             </div>
 
-            {/* Player Count or 2v2 Fixed Count */}
             <div className="flex items-center justify-between bg-[#081c10] p-2.5 rounded-xl border border-emerald-500/20">
               <span className="text-xs font-bold text-emerald-200 flex items-center gap-1.5">
                 <UserCheck className="w-3.5 h-3.5 text-amber-400" />
@@ -541,7 +620,6 @@ export function LobbyView({
 
           {/* Row 3: 3 Custom House Rules Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
-            {/* Draw Rule */}
             <div className="flex items-center justify-between p-2.5 rounded-xl bg-[#081c10] border border-emerald-500/20">
               <span className="text-emerald-200 font-bold flex items-center gap-1.5">
                 <Layers className="w-3.5 h-3.5 text-sky-400" />
@@ -585,7 +663,6 @@ export function LobbyView({
               )}
             </div>
 
-            {/* Stacking Rule */}
             <div className="flex items-center justify-between p-2.5 rounded-xl bg-[#081c10] border border-emerald-500/20">
               <span className="text-emerald-200 font-bold flex items-center gap-1.5">
                 <Flame className="w-3.5 h-3.5 text-amber-400" />
@@ -613,7 +690,6 @@ export function LobbyView({
               )}
             </div>
 
-            {/* Challenge Wild Draw 4 Rule */}
             <div className="flex items-center justify-between p-2.5 rounded-xl bg-[#081c10] border border-emerald-500/20">
               <span className="text-emerald-200 font-bold flex items-center gap-1.5">
                 <Scale className="w-3.5 h-3.5 text-amber-300" />
@@ -643,9 +719,7 @@ export function LobbyView({
           </div>
         </div>
 
-        {/* ============================================================== */}
-        {/* START GAME CTA                                                 */}
-        {/* ============================================================== */}
+        {/* START GAME CTA */}
         {isHost ? (
           <button
             type="button"
@@ -661,7 +735,7 @@ export function LobbyView({
         ) : (
           <div className="w-full py-4 px-6 rounded-2xl bg-[#05120a] border border-emerald-500/30 text-center text-sm font-bold text-emerald-300 flex items-center justify-center gap-2.5">
             <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping" />
-            <span>已就緒，等待房主發牌開局...</span>
+            <span>{isSpectator ? '你目前位於觀戰席，等待房主開局...' : '已就緒，等待房主發牌開局...'}</span>
           </div>
         )}
       </div>

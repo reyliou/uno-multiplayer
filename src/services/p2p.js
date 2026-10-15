@@ -1,5 +1,5 @@
 // 檔案位置：src/services/p2p.js
-// Decoupled WebRTC P2P Networking & Lobby Manager (Delegates Game Loop to HostGameController)
+// Decoupled WebRTC P2P Networking, Non-Destructive Mode Switching & Spectator Manager
 import Peer from 'peerjs';
 import { HostGameController } from '../game/hostGameController';
 import { soundManager } from './sound';
@@ -11,7 +11,7 @@ export class P2PNetwork {
     this.roomCode = '';
     this.playerName = '玩家';
     this.hostConn = null;
-    this.guestConns = new Map();
+    this.guestConns = new Map(); // peerId -> { conn, name, slotIndex, isSpectator }
 
     // Callbacks for React state
     this.onLobbyUpdate = null;
@@ -23,6 +23,7 @@ export class P2PNetwork {
 
     // Lobby configuration state
     this.lobbyPlayers = [];
+    this.spectators = []; // Array of { peerId, name }
     this.allowStacking = true;
     this.allowChallengeWildDraw4 = true;
     this.gameMode = 'ffa';
@@ -32,7 +33,6 @@ export class P2PNetwork {
     this.gameStarted = false;
     this.lobbyIdleTimer = null;
 
-    // Decoupled Host Game Controller
     this.controller = new HostGameController({
       onBroadcastState: () => this.broadcastGameState(),
       onBroadcastSound: (soundName) => this.broadcastSoundEvent(soundName),
@@ -41,7 +41,6 @@ export class P2PNetwork {
     });
   }
 
-  // Backward-compatible getter so any external check for p2pNetwork.engine still works
   get engine() {
     return this.controller.engine;
   }
@@ -99,6 +98,7 @@ export class P2PNetwork {
     this.deckTheme = 'classic';
     this.gameStarted = false;
     this.guestConns.clear();
+    this.spectators = [];
     this.resetLobbyIdleTimer();
     this.controller.destroy();
 
@@ -134,14 +134,10 @@ export class P2PNetwork {
   }
 
   initLobbySlots() {
-    const count = this.gameMode === '2v2' ? 4 : (this.lobbyPlayers.length >= 2 ? this.lobbyPlayers.length : 4);
+    const count = 4;
     const slots = [];
     for (let i = 0; i < count; i++) {
       const isHost = i === 0;
-      const teamId = this.gameMode === '2v2' ? (i % 2 === 0 ? 'team_a' : 'team_b') : null;
-      const teamName = this.gameMode === '2v2' ? (i % 2 === 0 ? '金隊 (隊伍 A)' : '藍隊 (隊伍 B)') : null;
-      const partnerIdx = this.gameMode === '2v2' ? (i + 2) % 4 : null;
-
       slots.push({
         id: i,
         name: isHost ? this.playerName : `電腦 ${i}`,
@@ -149,12 +145,32 @@ export class P2PNetwork {
         isAi: !isHost,
         isReady: true,
         peerId: isHost ? 'host' : null,
-        teamId,
-        teamName,
-        partnerIdx
+        teamId: this.gameMode === '2v2' ? (i % 2 === 0 ? 'team_a' : 'team_b') : null,
+        teamName: this.gameMode === '2v2' ? (i % 2 === 0 ? '金隊 (隊伍 A)' : '藍隊 (隊伍 B)') : null,
+        partnerIdx: this.gameMode === '2v2' ? (i + 2) % 4 : null
       });
     }
     this.lobbyPlayers = slots;
+  }
+
+  // Helper: Refresh slot indices and team tags without wiping any players!
+  refreshSlotTeamMetadata() {
+    this.lobbyPlayers = this.lobbyPlayers.map((p, idx) => ({
+      ...p,
+      id: idx,
+      teamId: this.gameMode === '2v2' ? (idx % 2 === 0 ? 'team_a' : 'team_b') : null,
+      teamName: this.gameMode === '2v2' ? (idx % 2 === 0 ? '金隊 (隊伍 A)' : '藍隊 (隊伍 B)') : null,
+      partnerIdx: this.gameMode === '2v2' ? (idx + 2) % 4 : null
+    }));
+
+    // Keep guestConns slotIndex synced
+    this.lobbyPlayers.forEach((p, idx) => {
+      if (p.peerId && p.peerId !== 'host' && this.guestConns.has(p.peerId)) {
+        const g = this.guestConns.get(p.peerId);
+        g.slotIndex = idx;
+        g.isSpectator = false;
+      }
+    });
   }
 
   handleIncomingConnection(conn) {
@@ -178,8 +194,19 @@ export class P2PNetwork {
     const guestInfo = this.guestConns.get(peerId);
     if (!guestInfo) return;
 
-    const slotIndex = guestInfo.slotIndex;
     this.guestConns.delete(peerId);
+
+    if (guestInfo.isSpectator) {
+      this.spectators = this.spectators.filter(s => s.peerId !== peerId);
+      if (!this.gameStarted) {
+        this.broadcastLobbyUpdate();
+      } else {
+        this.broadcastGameState();
+      }
+      return;
+    }
+
+    const slotIndex = guestInfo.slotIndex;
 
     if (!this.gameStarted) {
       if (this.lobbyPlayers[slotIndex]) {
@@ -206,6 +233,90 @@ export class P2PNetwork {
     }
   }
 
+  // Kick a spectator by peerId
+  kickSpectator(peerId, reason = '你已被房主移出觀戰席！') {
+    if (!this.isHost) return { success: false };
+    this.spectators = this.spectators.filter(s => s.peerId !== peerId);
+    if (this.guestConns.has(peerId)) {
+      const guest = this.guestConns.get(peerId);
+      this.guestConns.delete(peerId);
+      if (guest && guest.conn) {
+        try {
+          guest.conn.send({ type: 'KICKED', reason });
+          setTimeout(() => {
+            try { guest.conn.close(); } catch {}
+          }, 120);
+        } catch {}
+      }
+    }
+    this.broadcastLobbyUpdate();
+    return { success: true };
+  }
+
+  // Move a seated human player to the Spectator section
+  moveToSpectator(slotIndex) {
+    if (!this.isHost || this.gameStarted) return { success: false };
+    const slot = this.lobbyPlayers[slotIndex];
+    if (!slot || slot.isHost || slot.isAi || !slot.peerId) return { success: false };
+
+    const peerId = slot.peerId;
+    const playerName = slot.name;
+
+    if (!this.spectators.some(s => s.peerId === peerId)) {
+      this.spectators.push({ peerId, name: playerName });
+    }
+
+    if (this.guestConns.has(peerId)) {
+      const g = this.guestConns.get(peerId);
+      g.slotIndex = -1;
+      g.isSpectator = true;
+    }
+
+    slot.isAi = false;
+    slot.name = '開放玩家加入...';
+    slot.peerId = null;
+
+    this.broadcastLobbyUpdate();
+    return { success: true };
+  }
+
+  // Move a spectator into an open or AI table seat
+  moveSpectatorToSlot(peerId, targetSlotIndex = null) {
+    if (!this.isHost || this.gameStarted) return { success: false };
+    const specIdx = this.spectators.findIndex(s => s.peerId === peerId);
+    if (specIdx === -1) return { success: false };
+
+    const spec = this.spectators[specIdx];
+
+    let slotIdx = targetSlotIndex;
+    if (slotIdx === null || slotIdx === undefined) {
+      slotIdx = this.lobbyPlayers.findIndex(p => !p.isHost && !p.isAi && !p.peerId);
+      if (slotIdx === -1) {
+        slotIdx = this.lobbyPlayers.findIndex(p => !p.isHost && p.isAi);
+      }
+    }
+
+    if (slotIdx === -1 || !this.lobbyPlayers[slotIdx] || (this.lobbyPlayers[slotIdx].peerId && !this.lobbyPlayers[slotIdx].isAi)) {
+      if (this.onError) this.onError('目前牌桌沒有空位可供入座！');
+      return { success: false };
+    }
+
+    this.spectators.splice(specIdx, 1);
+    const slot = this.lobbyPlayers[slotIdx];
+    slot.name = spec.name;
+    slot.isAi = false;
+    slot.peerId = spec.peerId;
+
+    if (this.guestConns.has(spec.peerId)) {
+      const g = this.guestConns.get(spec.peerId);
+      g.slotIndex = slotIdx;
+      g.isSpectator = false;
+    }
+
+    this.broadcastLobbyUpdate();
+    return { success: true };
+  }
+
   kickPlayer(slotIndex, reason = '你已被房主移出房間！', convertToOpenInLobby = true) {
     if (!this.isHost) return { success: false };
     const hostIdx = this.getHostIndex();
@@ -217,7 +328,7 @@ export class P2PNetwork {
     let targetPeerId = lobbySlot?.peerId || enginePlayer?.peerId || null;
     if (!targetPeerId || targetPeerId === 'host') {
       for (const [pId, gInfo] of this.guestConns.entries()) {
-        if (gInfo.slotIndex === slotIndex) {
+        if (!gInfo.isSpectator && gInfo.slotIndex === slotIndex) {
           targetPeerId = pId;
           break;
         }
@@ -287,14 +398,49 @@ export class P2PNetwork {
     switch (packet.type) {
       case 'JOIN': {
         const guestName = (packet.name || '訪客').trim();
-        let targetSlotIdx = this.lobbyPlayers.findIndex((p) => !p.isHost && !p.isAi && !p.peerId);
-        if (targetSlotIdx === -1) {
-          targetSlotIdx = this.lobbyPlayers.findIndex((p) => !p.isHost && p.isAi);
+        const preferSpectate = !!packet.asSpectator || this.gameStarted;
+
+        let targetSlotIdx = -1;
+        if (!preferSpectate) {
+          targetSlotIdx = this.lobbyPlayers.findIndex((p) => !p.isHost && !p.isAi && !p.peerId);
+          if (targetSlotIdx === -1) {
+            targetSlotIdx = this.lobbyPlayers.findIndex((p) => !p.isHost && p.isAi);
+          }
         }
 
+        // If all seats are full or game already started, automatically place in Spectators!
         if (targetSlotIdx === -1) {
-          conn.send({ type: 'JOIN_REJECTED', reason: '房間已滿！' });
-          conn.close();
+          this.spectators = this.spectators.filter(s => s.peerId !== conn.peer);
+          this.spectators.push({ peerId: conn.peer, name: guestName });
+
+          this.guestConns.set(conn.peer, {
+            conn,
+            name: guestName,
+            slotIndex: -1,
+            isSpectator: true
+          });
+
+          conn.send({
+            type: 'JOIN_ACCEPTED',
+            slotIndex: -1,
+            isSpectator: true,
+            roomCode: this.roomCode,
+            gameMode: this.gameMode,
+            allowStacking: this.allowStacking,
+            allowChallengeWildDraw4: this.allowChallengeWildDraw4,
+            targetScore: this.targetScore,
+            drawRule: this.drawRule,
+            deckTheme: this.deckTheme || 'classic'
+          });
+
+          this.broadcastLobbyUpdate();
+
+          if (this.gameStarted && this.engine) {
+            conn.send({
+              type: 'SYNC_STATE',
+              state: this.engine.getClientState(0, true)
+            });
+          }
           return;
         }
 
@@ -306,12 +452,14 @@ export class P2PNetwork {
         this.guestConns.set(conn.peer, {
           conn,
           name: guestName,
-          slotIndex: targetSlotIdx
+          slotIndex: targetSlotIdx,
+          isSpectator: false
         });
 
         conn.send({
           type: 'JOIN_ACCEPTED',
           slotIndex: targetSlotIdx,
+          isSpectator: false,
           roomCode: this.roomCode,
           gameMode: this.gameMode,
           allowStacking: this.allowStacking,
@@ -326,15 +474,28 @@ export class P2PNetwork {
         if (this.gameStarted && this.engine) {
           conn.send({
             type: 'SYNC_STATE',
-            state: this.engine.getClientState(targetSlotIdx)
+            state: this.engine.getClientState(targetSlotIdx, false)
           });
+        }
+        break;
+      }
+
+      case 'ACTION_TOGGLE_SPECTATE': {
+        if (this.gameStarted) return;
+        const guest = this.guestConns.get(conn.peer);
+        if (!guest) return;
+
+        if (guest.isSpectator) {
+          this.moveSpectatorToSlot(conn.peer);
+        } else if (guest.slotIndex >= 0) {
+          this.moveToSpectator(guest.slotIndex);
         }
         break;
       }
 
       case 'ACTION_PLAY': {
         const guest = this.guestConns.get(conn.peer);
-        if (!guest) return;
+        if (!guest || guest.isSpectator) return;
         const res = this.controller.playCard(guest.slotIndex, packet.cardId, packet.chosenColor, packet.calledUno);
         if (!res.success && res.reason) {
           conn.send({ type: 'ACTION_FAILED', reason: res.reason });
@@ -344,14 +505,14 @@ export class P2PNetwork {
 
       case 'ACTION_CHOOSE_COLOR': {
         const guest = this.guestConns.get(conn.peer);
-        if (!guest) return;
+        if (!guest || guest.isSpectator) return;
         this.controller.chooseColor(guest.slotIndex, packet.chosenColor);
         break;
       }
 
       case 'ACTION_DRAW': {
         const guest = this.guestConns.get(conn.peer);
-        if (!guest) return;
+        if (!guest || guest.isSpectator) return;
         const res = this.controller.drawCard(guest.slotIndex);
         if (!res.success && res.reason) {
           conn.send({ type: 'ACTION_FAILED', reason: res.reason });
@@ -361,7 +522,7 @@ export class P2PNetwork {
 
       case 'ACTION_PASS': {
         const guest = this.guestConns.get(conn.peer);
-        if (!guest) return;
+        if (!guest || guest.isSpectator) return;
         const res = this.controller.passTurn(guest.slotIndex);
         if (!res.success && res.reason) {
           conn.send({ type: 'ACTION_FAILED', reason: res.reason });
@@ -371,21 +532,21 @@ export class P2PNetwork {
 
       case 'ACTION_UNO': {
         const guest = this.guestConns.get(conn.peer);
-        if (!guest) return;
+        if (!guest || guest.isSpectator) return;
         this.controller.callUno(guest.slotIndex);
         break;
       }
 
       case 'ACTION_CHALLENGE': {
         const guest = this.guestConns.get(conn.peer);
-        if (!guest) return;
+        if (!guest || guest.isSpectator) return;
         this.controller.challengeUno(guest.slotIndex, packet.targetIndex);
         break;
       }
 
       case 'ACTION_CHALLENGE_WILD_DRAW4': {
         const guest = this.guestConns.get(conn.peer);
-        if (!guest) return;
+        if (!guest || guest.isSpectator) return;
         const res = this.controller.challengeWildDraw4(guest.slotIndex);
         if (!res.success && res.reason) {
           conn.send({ type: 'ACTION_FAILED', reason: res.reason });
@@ -399,12 +560,47 @@ export class P2PNetwork {
   }
 
   // ==========================================
-  // LOBBY SETTINGS & SLOT MUTATIONS
+  // LOBBY SETTINGS & NON-DESTRUCTIVE MODE SWITCHING
   // ==========================================
   setGameMode(mode) {
     if (!this.isHost || this.gameStarted) return;
+    if (this.gameMode === mode) return;
     this.gameMode = mode;
-    this.initLobbySlots();
+
+    // 2V2 mode requires 4 seats: if currently 2 or 3 seats, pad up to 4 without touching existing friends!
+    if (mode === '2v2' && this.lobbyPlayers.length < 4) {
+      for (let i = this.lobbyPlayers.length; i < 4; i++) {
+        // If there is a spectator waiting, let them fill the newly opened seat; otherwise add AI
+        if (this.spectators.length > 0) {
+          const spec = this.spectators.shift();
+          this.lobbyPlayers.push({
+            id: i,
+            name: spec.name,
+            isHost: false,
+            isAi: false,
+            isReady: true,
+            peerId: spec.peerId
+          });
+          if (this.guestConns.has(spec.peerId)) {
+            const g = this.guestConns.get(spec.peerId);
+            g.slotIndex = i;
+            g.isSpectator = false;
+          }
+        } else {
+          this.lobbyPlayers.push({
+            id: i,
+            name: `電腦 ${i}`,
+            isHost: false,
+            isAi: true,
+            isReady: true,
+            peerId: null
+          });
+        }
+      }
+    }
+
+    // Update teamId & partnerIdx in-place while keeping all seated friends intact!
+    this.refreshSlotTeamMetadata();
     this.broadcastLobbyUpdate();
   }
 
@@ -415,25 +611,64 @@ export class P2PNetwork {
 
     if (targetCount > this.lobbyPlayers.length) {
       for (let i = this.lobbyPlayers.length; i < targetCount; i++) {
-        this.lobbyPlayers.push({
-          id: i,
-          name: `電腦 ${i}`,
-          isHost: false,
-          isAi: true,
-          isReady: true,
-          peerId: null
-        });
-      }
-    } else {
-      for (let i = targetCount; i < this.lobbyPlayers.length; i++) {
-        const p = this.lobbyPlayers[i];
-        if (p.peerId && p.peerId !== 'host') {
-          this.kickPlayer(i, '房主縮減了房間人數！');
+        if (this.spectators.length > 0) {
+          const spec = this.spectators.shift();
+          this.lobbyPlayers.push({
+            id: i,
+            name: spec.name,
+            isHost: false,
+            isAi: false,
+            isReady: true,
+            peerId: spec.peerId
+          });
+          if (this.guestConns.has(spec.peerId)) {
+            const g = this.guestConns.get(spec.peerId);
+            g.slotIndex = i;
+            g.isSpectator = false;
+          }
+        } else {
+          this.lobbyPlayers.push({
+            id: i,
+            name: `電腦 ${i}`,
+            isHost: false,
+            isAi: true,
+            isReady: true,
+            peerId: null
+          });
         }
       }
-      this.lobbyPlayers = this.lobbyPlayers.slice(0, targetCount);
+    } else {
+      // Shrinking player count: preserve human friends whenever possible!
+      const keptSlots = this.lobbyPlayers.slice(0, targetCount);
+      const removedSlots = this.lobbyPlayers.slice(targetCount);
+
+      for (const removed of removedSlots) {
+        if (!removed.isAi && removed.peerId && removed.peerId !== 'host') {
+          // Try to find an AI or open slot inside keptSlots to relocate this friend
+          const replaceableIdx = keptSlots.findIndex(s => !s.isHost && (s.isAi || !s.peerId));
+          if (replaceableIdx !== -1) {
+            keptSlots[replaceableIdx] = {
+              ...removed,
+              id: replaceableIdx
+            };
+          } else {
+            // All kept slots are occupied by humans -> Move friend to Spectators instead of kicking!
+            if (!this.spectators.some(s => s.peerId === removed.peerId)) {
+              this.spectators.push({ peerId: removed.peerId, name: removed.name });
+            }
+            if (this.guestConns.has(removed.peerId)) {
+              const g = this.guestConns.get(removed.peerId);
+              g.slotIndex = -1;
+              g.isSpectator = true;
+            }
+          }
+        }
+      }
+
+      this.lobbyPlayers = keptSlots;
     }
 
+    this.refreshSlotTeamMetadata();
     this.broadcastLobbyUpdate();
   }
 
@@ -444,31 +679,10 @@ export class P2PNetwork {
     const pA = { ...this.lobbyPlayers[idxA] };
     const pB = { ...this.lobbyPlayers[idxB] };
 
-    this.lobbyPlayers[idxA] = {
-      ...pB,
-      id: idxA,
-      isHost: !!pB.isHost,
-      teamId: this.gameMode === '2v2' ? (idxA % 2 === 0 ? 'team_a' : 'team_b') : null,
-      teamName: this.gameMode === '2v2' ? (idxA % 2 === 0 ? '金隊 (隊伍 A)' : '藍隊 (隊伍 B)') : null,
-      partnerIdx: this.gameMode === '2v2' ? (idxA + 2) % 4 : null
-    };
+    this.lobbyPlayers[idxA] = { ...pB, id: idxA, isHost: !!pB.isHost };
+    this.lobbyPlayers[idxB] = { ...pA, id: idxB, isHost: !!pA.isHost };
 
-    this.lobbyPlayers[idxB] = {
-      ...pA,
-      id: idxB,
-      isHost: !!pA.isHost,
-      teamId: this.gameMode === '2v2' ? (idxB % 2 === 0 ? 'team_a' : 'team_b') : null,
-      teamName: this.gameMode === '2v2' ? (idxB % 2 === 0 ? '金隊 (隊伍 B)' : '藍隊 (隊伍 A)') : null,
-      partnerIdx: this.gameMode === '2v2' ? (idxB + 2) % 4 : null
-    };
-
-    if (pA.peerId && this.guestConns.has(pA.peerId)) {
-      this.guestConns.get(pA.peerId).slotIndex = idxB;
-    }
-    if (pB.peerId && this.guestConns.has(pB.peerId)) {
-      this.guestConns.get(pB.peerId).slotIndex = idxA;
-    }
-
+    this.refreshSlotTeamMetadata();
     this.broadcastLobbyUpdate();
   }
 
@@ -478,7 +692,12 @@ export class P2PNetwork {
     if (!p) return;
 
     if (!p.isAi && p.peerId) {
-      this.kickPlayer(slotIndex, '房主已將該座位切換為電腦 AI！', false);
+      // Move human guest to Spectators and set slot to AI
+      this.moveToSpectator(slotIndex);
+      p.isAi = true;
+      p.name = `電腦 ${slotIndex}`;
+      p.peerId = null;
+      this.broadcastLobbyUpdate();
       return;
     } else if (p.isAi) {
       p.isAi = false;
@@ -627,6 +846,7 @@ export class P2PNetwork {
     const data = {
       type: 'LOBBY_UPDATE',
       players: this.lobbyPlayers,
+      spectators: this.spectators,
       gameMode: this.gameMode,
       allowStacking: this.allowStacking,
       allowChallengeWildDraw4: this.allowChallengeWildDraw4,
@@ -640,7 +860,11 @@ export class P2PNetwork {
 
     for (const guest of this.guestConns.values()) {
       if (guest.conn && guest.conn.open) {
-        guest.conn.send(data);
+        guest.conn.send({
+          ...data,
+          myPeerId: guest.conn.peer,
+          isSpectator: !!guest.isSpectator
+        });
       }
     }
   }
@@ -649,6 +873,7 @@ export class P2PNetwork {
     const data = {
       type: 'RETURN_TO_LOBBY',
       players: this.lobbyPlayers,
+      spectators: this.spectators,
       gameMode: this.gameMode,
       allowStacking: this.allowStacking,
       allowChallengeWildDraw4: this.allowChallengeWildDraw4,
@@ -662,7 +887,11 @@ export class P2PNetwork {
 
     for (const guest of this.guestConns.values()) {
       if (guest.conn && guest.conn.open) {
-        guest.conn.send(data);
+        guest.conn.send({
+          ...data,
+          myPeerId: guest.conn.peer,
+          isSpectator: !!guest.isSpectator
+        });
       }
     }
   }
@@ -671,12 +900,19 @@ export class P2PNetwork {
     if (!this.engine) return;
 
     const hostIdx = this.getHostIndex();
-    const hostState = this.engine.getClientState(hostIdx);
+    const hostState = {
+      ...this.engine.getClientState(hostIdx, false),
+      spectators: this.spectators
+    };
     if (this.onStateUpdate) this.onStateUpdate(hostState);
 
     for (const guest of this.guestConns.values()) {
       if (guest.conn && guest.conn.open) {
-        const guestState = this.engine.getClientState(guest.slotIndex);
+        const isSpec = !!guest.isSpectator || guest.slotIndex < 0;
+        const guestState = {
+          ...this.engine.getClientState(isSpec ? 0 : guest.slotIndex, isSpec),
+          spectators: this.spectators
+        };
         guest.conn.send({
           type: 'SYNC_STATE',
           state: guestState
@@ -776,6 +1012,7 @@ export class P2PNetwork {
 
       case 'JOIN_ACCEPTED':
         this.mySlotIndex = packet.slotIndex;
+        this.isSpectator = !!packet.isSpectator;
         this.gameMode = packet.gameMode || 'ffa';
         this.allowStacking = packet.allowStacking;
         if (packet.allowChallengeWildDraw4 !== undefined) this.allowChallengeWildDraw4 = packet.allowChallengeWildDraw4;
@@ -786,6 +1023,8 @@ export class P2PNetwork {
 
       case 'LOBBY_UPDATE':
         this.lobbyPlayers = packet.players;
+        this.spectators = packet.spectators || [];
+        this.isSpectator = !!packet.isSpectator;
         this.gameMode = packet.gameMode || 'ffa';
         this.allowStacking = packet.allowStacking;
         if (packet.allowChallengeWildDraw4 !== undefined) this.allowChallengeWildDraw4 = packet.allowChallengeWildDraw4;
@@ -798,6 +1037,8 @@ export class P2PNetwork {
       case 'RETURN_TO_LOBBY':
         this.gameStarted = false;
         this.lobbyPlayers = packet.players || this.lobbyPlayers;
+        this.spectators = packet.spectators || [];
+        this.isSpectator = !!packet.isSpectator;
         this.gameMode = packet.gameMode || 'ffa';
         this.allowStacking = packet.allowStacking;
         if (packet.allowChallengeWildDraw4 !== undefined) this.allowChallengeWildDraw4 = packet.allowChallengeWildDraw4;
@@ -810,7 +1051,7 @@ export class P2PNetwork {
       case 'SYNC_STATE':
         this.gameStarted = true;
         if (this.onStateUpdate) this.onStateUpdate(packet.state);
-        if (packet.state && packet.state.currentTurn === packet.state.myIndex && !packet.state.isContinuousDrawing && !packet.state.isDealing) {
+        if (packet.state && !packet.state.isSpectator && packet.state.currentTurn === packet.state.myIndex && !packet.state.isContinuousDrawing && !packet.state.isDealing) {
           soundManager.playTurn();
         }
         break;
@@ -831,6 +1072,11 @@ export class P2PNetwork {
       default:
         break;
     }
+  }
+
+  clientToggleSpectate() {
+    if (!this.hostConn || !this.hostConn.open) return;
+    this.hostConn.send({ type: 'ACTION_TOGGLE_SPECTATE' });
   }
 
   clientPlayCard(cardId, chosenColor, calledUno) {
@@ -883,6 +1129,7 @@ export class P2PNetwork {
       if (g.conn) g.conn.close();
     }
     this.guestConns.clear();
+    this.spectators = [];
     if (this.peer) {
       this.peer.destroy();
       this.peer = null;

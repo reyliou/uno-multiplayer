@@ -274,6 +274,12 @@ export class HostGameController {
     if (res.success && res.caught) {
       this.emitSound('penalty');
       this.onBroadcastState();
+      setTimeout(() => {
+        if (this.engine && this.engine.activePenaltyBanner?.playerId === targetIndex) {
+          this.engine.activePenaltyBanner = null;
+          this.onBroadcastState();
+        }
+      }, 1500);
     }
     return res;
   }
@@ -762,6 +768,7 @@ export class HostGameController {
       this.engine.drawingPlayerIndex = null;
       this.engine.drawingStepCount = 0;
       this.engine.wild4ChallengeAnim = null;
+      this.engine.activePenaltyBanner = null;
     }
   }
 

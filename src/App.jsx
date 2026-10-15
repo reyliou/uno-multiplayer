@@ -1,4 +1,4 @@
-// App.jsx - Main UNO Multiplayer Application
+// 檔案位置：src/App.jsx
 import React, { useState, useEffect } from 'react';
 import { HomeView } from './components/HomeView';
 import { LobbyView } from './components/LobbyView';
@@ -12,19 +12,22 @@ export default function App() {
   const [isHost, setIsHost] = useState(false);
   const [roomCode, setRoomCode] = useState('');
   const [lobbyPlayers, setLobbyPlayers] = useState([]);
+  const [spectators, setSpectators] = useState([]);
+  const [isSpectator, setIsSpectator] = useState(false);
   const [allowStacking, setAllowStacking] = useState(true);
   const [allowChallengeWildDraw4, setAllowChallengeWildDraw4] = useState(true);
   const [gameMode, setGameMode] = useState('ffa'); // 'ffa' | '2v2'
-  const [targetScore, setTargetScore] = useState(500); // 0 = casual/no score limit
-  const [drawRule, setDrawRule] = useState('draw_one'); // 'draw_one' | 'draw_until_playable'
-  const [deckTheme, setDeckTheme] = useState('classic'); // 'classic' | 'rabbids'
+  const [targetScore, setTargetScore] = useState(500);
+  const [drawRule, setDrawRule] = useState('draw_one');
+  const [deckTheme, setDeckTheme] = useState('classic');
   const [gameState, setGameState] = useState(null);
   const [errorMessage, setErrorMessage] = useState('');
 
-  // Register P2P network event listeners (only on mount)
   useEffect(() => {
     p2pNetwork.onLobbyUpdate = (data) => {
-      setLobbyPlayers([...data.players]);
+      setLobbyPlayers([...(data.players || [])]);
+      setSpectators([...(data.spectators || [])]);
+      if (data.isSpectator !== undefined) setIsSpectator(!!data.isSpectator);
       setAllowStacking(data.allowStacking);
       if (data.allowChallengeWildDraw4 !== undefined) setAllowChallengeWildDraw4(data.allowChallengeWildDraw4);
       setGameMode(data.gameMode || 'ffa');
@@ -37,11 +40,15 @@ export default function App() {
 
     p2pNetwork.onStateUpdate = (state) => {
       setGameState({ ...state });
+      if (state.spectators) setSpectators([...state.spectators]);
+      if (state.isSpectator !== undefined) setIsSpectator(!!state.isSpectator);
       setView((prev) => (prev !== 'game' ? 'game' : prev));
     };
 
     p2pNetwork.onReturnToLobby = (data) => {
       if (data && data.players) setLobbyPlayers([...data.players]);
+      if (data && data.spectators) setSpectators([...data.spectators]);
+      if (data && data.isSpectator !== undefined) setIsSpectator(!!data.isSpectator);
       if (data && data.allowChallengeWildDraw4 !== undefined) setAllowChallengeWildDraw4(data.allowChallengeWildDraw4);
       if (data && data.targetScore !== undefined) setTargetScore(data.targetScore);
       if (data && data.drawRule) setDrawRule(data.drawRule);
@@ -53,6 +60,8 @@ export default function App() {
       setErrorMessage(reason || '房主已解散房間！');
       setGameState(null);
       setLobbyPlayers([]);
+      setSpectators([]);
+      setIsSpectator(false);
       setView('home');
       window.location.hash = '';
       setTimeout(() => setErrorMessage(''), 5000);
@@ -68,7 +77,6 @@ export default function App() {
     };
   }, []);
 
-  // Auto-disband room if host closes window/tab or refreshes
   useEffect(() => {
     const handleBeforeUnload = () => {
       if (isHost && p2pNetwork.isHost) {
@@ -81,9 +89,9 @@ export default function App() {
     };
   }, [isHost]);
 
-  // Host creates room
   const handleCreateRoom = (code, hostName, stacking, mode = 'ffa') => {
     setIsHost(true);
+    setIsSpectator(false);
     setRoomCode(code);
     setAllowStacking(stacking);
     setGameMode(mode);
@@ -91,7 +99,6 @@ export default function App() {
     setView('lobby');
   };
 
-  // Guest joins room
   const handleJoinRoom = (code, guestName) => {
     setIsHost(false);
     setRoomCode(code);
@@ -99,78 +106,88 @@ export default function App() {
     setView('lobby');
   };
 
-  // Host starts game
   const handleStartGame = () => {
     p2pNetwork.startGame();
   };
 
-  // Toggle slot AI (Host only)
   const handleToggleAi = (slotIndex) => {
     p2pNetwork.toggleSlotAi(slotIndex);
   };
 
-  // Toggle stacking rule (Host only)
   const handleToggleStacking = () => {
     p2pNetwork.toggleStackingRule();
   };
 
-  // Toggle challenge wild draw 4 rule (Host only)
   const handleToggleChallengeRule = () => {
     p2pNetwork.toggleChallengeRule();
   };
 
-  // Set target score (Host only)
   const handleSetTargetScore = (score) => {
     setTargetScore(score);
     p2pNetwork.setTargetScore(score);
   };
 
-  // Set draw rule (Host only)
   const handleSetDrawRule = (rule) => {
     setDrawRule(rule);
     p2pNetwork.setDrawRule(rule);
   };
 
-  // Set deck theme (Host only)
   const handleSetDeckTheme = (theme) => {
     setDeckTheme(theme);
     p2pNetwork.setDeckTheme(theme);
   };
 
-  // Start next round (Host only)
   const handleNextRound = (resetMatch = false) => {
     p2pNetwork.startNextRound(resetMatch);
   };
 
-  // Return to lobby from game (Host only)
   const handleReturnToLobby = () => {
     p2pNetwork.returnToLobby();
     setView('lobby');
   };
 
-  // Set game mode (Host only)
   const handleSetGameMode = (mode) => {
     setGameMode(mode);
     p2pNetwork.setGameMode(mode);
   };
 
-  // Set FFA player count (Host only)
   const handleSetFfaCount = (count) => {
     p2pNetwork.setFfaPlayerCount(count);
   };
 
-  // Swap slots (Host only)
   const handleSwapSlots = (idxA, idxB) => {
     p2pNetwork.swapSlots(idxA, idxB);
   };
 
-  // Kick player (Host only)
   const handleKickPlayer = (slotIndex, reason = '房主已將你移出房間！') => {
     if (!isHost) return;
     p2pNetwork.kickPlayer(slotIndex, reason);
   };
 
-  // Leave or disband room
+  const handleMoveToSpectator = (slotIndex) => {
+    if (isHost) {
+      p2pNetwork.moveToSpectator(slotIndex);
+    }
+  };
+
+  const handleMoveSpectatorToSlot = (peerId) => {
+    if (isHost) {
+      p2pNetwork.moveSpectatorToSlot(peerId);
+    }
+  };
+
+  const handleKickSpectator = (peerId) => {
+    if (isHost) {
+      p2pNetwork.kickSpectator(peerId);
+    }
+  };
+
+  const handleClientToggleSpectate = () => {
+    if (!isHost) {
+      p2pNetwork.clientToggleSpectate();
+    }
+  };
+
   const handleLeaveRoom = () => {
     if (isHost) {
       p2pNetwork.disbandRoom('房主已解散房間！');
@@ -179,12 +196,14 @@ export default function App() {
     }
     setGameState(null);
     setLobbyPlayers([]);
+    setSpectators([]);
+    setIsSpectator(false);
     setView('home');
     window.location.hash = '';
   };
 
-  // Game actions
   const handlePlayCard = (cardId, chosenColor, calledUno) => {
+    if (isSpectator) return;
     if (isHost) {
       p2pNetwork.hostPlayCard(cardId, chosenColor, calledUno);
     } else {
@@ -193,6 +212,7 @@ export default function App() {
   };
 
   const handleDrawCard = () => {
+    if (isSpectator) return;
     if (isHost) {
       p2pNetwork.hostDrawCard();
     } else {
@@ -201,6 +221,7 @@ export default function App() {
   };
 
   const handlePassTurn = () => {
+    if (isSpectator) return;
     if (isHost) {
       p2pNetwork.hostPassTurn();
     } else {
@@ -209,6 +230,7 @@ export default function App() {
   };
 
   const handleCallUno = () => {
+    if (isSpectator) return;
     if (isHost) {
       p2pNetwork.hostCallUno();
     } else {
@@ -217,6 +239,7 @@ export default function App() {
   };
 
   const handleChallengeUno = (targetIndex) => {
+    if (isSpectator) return;
     if (isHost) {
       p2pNetwork.hostChallengeUno(targetIndex);
     } else {
@@ -225,6 +248,7 @@ export default function App() {
   };
 
   const handleChallengeWildDraw4 = () => {
+    if (isSpectator) return;
     if (isHost) {
       p2pNetwork.hostChallengeWildDraw4();
     } else {
@@ -233,6 +257,7 @@ export default function App() {
   };
 
   const handleChooseColor = (chosenColor) => {
+    if (isSpectator) return;
     if (isHost) {
       p2pNetwork.hostChooseColor(chosenColor);
     } else {
@@ -242,7 +267,6 @@ export default function App() {
 
   return (
     <div className="relative min-h-[100dvh]">
-      {/* Global Toast Notification */}
       {errorMessage && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-600 text-white text-xs sm:text-sm font-bold shadow-2xl animate-bounce">
           <AlertCircle className="w-4 h-4 shrink-0" />
@@ -257,7 +281,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Screen Router */}
       {view === 'home' && (
         <HomeView
           onCreateRoom={handleCreateRoom}
@@ -270,6 +293,8 @@ export default function App() {
           roomCode={roomCode}
           isHost={isHost}
           players={lobbyPlayers}
+          spectators={spectators}
+          isSpectator={isSpectator}
           gameMode={gameMode}
           allowStacking={allowStacking}
           allowChallengeWildDraw4={allowChallengeWildDraw4}
@@ -286,6 +311,10 @@ export default function App() {
           onSetFfaCount={handleSetFfaCount}
           onSwapSlots={handleSwapSlots}
           onKickPlayer={handleKickPlayer}
+          onMoveToSpectator={handleMoveToSpectator}
+          onMoveSpectatorToSlot={handleMoveSpectatorToSlot}
+          onKickSpectator={handleKickSpectator}
+          onClientToggleSpectate={handleClientToggleSpectate}
           onStartGame={handleStartGame}
           onLeaveRoom={handleLeaveRoom}
         />
@@ -308,7 +337,6 @@ export default function App() {
         />
       )}
 
-      {/* Victory Celebration Modal */}
       {view === 'game' && gameState && gameState.gameStatus === 'game_over' && (
         <VictoryModal
           winner={gameState.winner}

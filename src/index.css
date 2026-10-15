@@ -291,3 +291,38 @@
 .challenge-verdict-pop {
   animation: verdict-badge-pop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) 0.35s both;
 }
+
+/* ==========================================================
+   STEAM UNO STYLE BLACK-STROKE WHITE-FILL "+N" HAND INDICATOR
+   ========================================================== */
+@keyframes uno-plus-pop {
+  0% {
+    transform: scale(0.4) translateY(12px);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.18) translateY(-4px);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1) translateY(0);
+    opacity: 1;
+  }
+}
+
+.uno-plus-indicator {
+  font-family: "Arial Black", "Impact", system-ui, -apple-system, sans-serif;
+  font-weight: 900;
+  color: #ffffff;
+  -webkit-text-stroke: 3.5px #000000;
+  paint-order: stroke fill;
+  text-shadow:
+    0 4px 0 #000000,
+    0 8px 18px rgba(0, 0, 0, 0.9);
+  animation: uno-plus-pop 0.32s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  user-select: none;
+  pointer-events: none;
+}
+
