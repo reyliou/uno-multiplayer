@@ -639,11 +639,10 @@ export class UnoEngine {
       effectMsg += ` 🌪️ 瘋狂借過發動 (保留當前${this.colorNames[this.currentColor] || '底牌'})！準備展開兩波全場瘋狂發牌！`;
     } else if (card.value === 'rabbids_wild_shield') {
       if (this.stackedDrawCount > 0) {
-        const blockedCount = this.stackedDrawCount;
-        this.stackedDrawCount = 0;
-        this.stackedDrawType = null;
-        this.lastWildDraw4Info = null;
-        effectMsg += ` 🛡️ 兔兔盾牌展開絕對防禦！完全擋下並消除【+${blockedCount} 張】罰抽 (保留當前${this.colorNames[this.currentColor] || '底牌'})！`;
+        // ✅ Steam 原版真實機制：自己免抽、不改顏色、牌面淡出消失，並保留 stackedDrawCount 直接轉嫁給下一位玩家！
+        const nextVictim = this.players[this.getNextTurnIndex(1)];
+        this.lastWildDraw4Info = null; // 轉嫁後下家不可質疑出盾牌的人
+        effectMsg += ` 🛡️ 兔兔盾牌反彈防禦！自己免抽，並將累積的【+${this.stackedDrawCount} 張】罰抽直接轉嫁給 ${nextVictim.name} (保留當前${this.colorNames[this.currentColor] || '底牌'})！`;
         nextStep = 1;
       } else {
         effectMsg += ` 🛡️ 兔兔盾牌安全變色！`;

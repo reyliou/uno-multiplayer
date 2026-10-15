@@ -311,7 +311,7 @@ export function GameTableView({
           setTimeout(() => setRabbidsEventBanner(''), 1800);
         } else if (lastAction.card.value === 'rabbids_wild_shield' && lastAction.isVanishing) {
           soundManager.playWild();
-          setRabbidsEventBanner(`🛡️ 【${lastAction.playerName}】展開兔兔盾牌！完美抵銷所有累積罰抽！`);
+          setRabbidsEventBanner(`🛡️ 【${lastAction.playerName}】展開兔兔盾牌！將累積罰抽直接轉嫁給下一位玩家！`);
           setTimeout(() => setRabbidsEventBanner(''), 1800);
         } else if (lastAction.card.value === 'reverse') {
           soundManager.playAction();
