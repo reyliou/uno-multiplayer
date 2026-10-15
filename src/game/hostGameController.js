@@ -434,21 +434,19 @@ export class HostGameController {
     this.onBroadcastState();
 
     if (card.value === 'rabbids_comin_through') {
-      // 第 1 階段：牌落到中央 700ms 後 -> 發動第一波 (隨機 5 張發給其他玩家)
+      // 瘋狂借過：第一波 -> 第二波 -> 牌面淡出 -> 換下一家
       setTimeout(() => {
         if (!this.engine || this.engine.gameStatus === 'game_over') return;
         this.engine.executeCominThroughWave(casterIndex, 1);
         this.emitSound('draw');
         this.onBroadcastState();
 
-        // 第 2 階段：等待 1250ms 讓第一波 5 張牌飛完 -> 發動第二波 (隨機 5 張發給全場所有人)
         setTimeout(() => {
           if (!this.engine || this.engine.gameStatus === 'game_over') return;
           this.engine.executeCominThroughWave(casterIndex, 2);
           this.emitSound('draw');
           this.onBroadcastState();
 
-          // 第 3 階段：等待 1350ms 讓第二波 5 張牌落地 -> 棄牌堆上的「瘋狂借過」淡出消失並換下一家！
           setTimeout(() => {
             if (!this.engine || this.engine.gameStatus === 'game_over') return;
             this.engine.vanishTopSpecialCard(card.id);
@@ -458,7 +456,34 @@ export class HostGameController {
           }, 1350);
         }, 1250);
       }, 700);
+    } else if (card.value === 'rabbids_wild_shield' && card.deflectedCount > 0) {
+      // 兔兔盾牌反彈：
+      // 階段 1：先讓盾牌在牌桌中央展示 750ms
+      setTimeout(() => {
+        if (!this.engine || this.engine.gameStatus === 'game_over') return;
+        const victimIdx = card.deflectedVictimIdx;
+        const count = card.deflectedCount;
+
+        // 階段 2：觸發下家承受反彈抽牌（前端會以每張 180ms 依序飛牌）
+        this.engine.executeShieldDeflectDraw(victimIdx, count);
+        this.emitSound('penalty');
+        this.onBroadcastState();
+
+        // 階段 3：動態計算所有反彈牌飛入下家手牌並落地的完整時間（每張 220ms + 基礎落地緩衝 850ms）
+        // 在這段時間內 isContinuousDrawing 保持為 true，電腦絕對無法提前偷出牌！
+        const totalFlightWaitMs = count * 220 + 850;
+        setTimeout(() => {
+          if (!this.engine || this.engine.gameStatus === 'game_over') return;
+          // 飛牌全部落地後，移除棄牌堆上的盾牌並正式把出牌權交給這位剛被加完牌的下家！
+          this.engine.vanishTopSpecialCard(card.id);
+          this.finishDrawingCleanup();
+          this.onBroadcastState();
+          this.checkAiTurn();
+        }, totalFlightWaitMs);
+      }, 750);
     } else {
+      // 瘋狂快抽 (Hurry Up!) 或 定時炸彈 (Explosive Results)：
+      // 展示並淡出 1250ms 後推進至下一家
       setTimeout(() => {
         if (!this.engine || this.engine.gameStatus === 'game_over') return;
         this.engine.vanishTopSpecialCard(card.id);

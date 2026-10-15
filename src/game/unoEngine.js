@@ -147,6 +147,14 @@ export class UnoEngine {
     this.turnDuration = this.consumeTurnDuration();
   }
 
+  // 當兔兔盾牌反彈罰抽時，將牌發給下一位玩家（下家），但保留下家的出牌回合！
+  executeShieldDeflectDraw(victimIndex, count) {
+    if (count <= 0 || !this.players[victimIndex]) return [];
+    const drawn = this.drawCardsForPlayer(victimIndex, count);
+    this.addLog(`🛡️ 兔兔盾牌反彈生效！【${this.players[victimIndex].name}】承受了 +${count} 張反彈抽牌，現在輪到 ${this.players[victimIndex].name} 出牌！`);
+    return drawn;
+  }
+
   // Steam UNO Rabbids Official Rule for Comin' Through!:
   // Wave 1: 5 cards are randomly distributed to everyone EXCEPT the caster.
   // Wave 2: 5 more cards are randomly distributed to EVERYONE including the caster.
@@ -671,10 +679,18 @@ export class UnoEngine {
       effectMsg += ` 🌪️ 瘋狂借過發動 (保留當前${this.colorNames[this.currentColor] || '底牌'})！準備展開兩波全場瘋狂發牌！`;
     } else if (card.value === 'rabbids_wild_shield') {
       if (this.stackedDrawCount > 0) {
-        // ✅ Steam 原版真實機制：自己免抽、不改顏色、牌面淡出消失，並保留 stackedDrawCount 直接轉嫁給下一位玩家！
-        const nextVictim = this.players[this.getNextTurnIndex(1)];
-        this.lastWildDraw4Info = null; // 轉嫁後下家不可質疑出盾牌的人
-        effectMsg += ` 🛡️ 兔兔盾牌反彈防禦！自己免抽，並將累積的【+${this.stackedDrawCount} 張】罰抽直接轉嫁給 ${nextVictim.name} (保留當前${this.colorNames[this.currentColor] || '底牌'})！`;
+        const deflectedCount = this.stackedDrawCount;
+        const nextVictimIdx = this.getNextTurnIndex(1);
+        const nextVictim = this.players[nextVictimIdx];
+
+        // 紀錄待反彈的張數與目標，交由控制器在盾牌動畫後逐張發牌，並清空罰抽池讓下家加完牌後可以直接出牌！
+        card.deflectedCount = deflectedCount;
+        card.deflectedVictimIdx = nextVictimIdx;
+        this.stackedDrawCount = 0;
+        this.stackedDrawType = null;
+        this.lastWildDraw4Info = null;
+
+        effectMsg += ` 🛡️ 兔兔盾牌反彈防禦！將【+${deflectedCount} 張】抽牌直接轉嫁給 ${nextVictim.name} (加完牌後由 ${nextVictim.name} 出牌)！`;
         nextStep = 1;
       } else {
         effectMsg += ` 🛡️ 兔兔盾牌安全變色！`;
