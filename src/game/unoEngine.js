@@ -123,13 +123,9 @@ export class UnoEngine {
   // Steam UNO Rabbids: Remove temporary special card (Hurry Up, Explosive, Comin' Through, or Deflecting Shield)
   // after its tabletop animation finishes, AND unconditionally advance the turn to the next player!
   vanishTopSpecialCard(cardId) {
-    if (cardId) {
-      const idx = this.discardPile.findIndex(c => c.id === cardId);
-      if (idx !== -1 && this.discardPile.length > 1) {
-        this.discardPile.splice(idx, 1);
-      }
-    } else if (this.vanishingCardId) {
-      const idx = this.discardPile.findIndex(c => c.id === this.vanishingCardId);
+    const removedId = cardId || this.vanishingCardId;
+    if (removedId) {
+      const idx = this.discardPile.findIndex(c => c.id === removedId);
       if (idx !== -1 && this.discardPile.length > 1) {
         this.discardPile.splice(idx, 1);
       }
@@ -147,6 +143,13 @@ export class UnoEngine {
     this.currentTurn = this.getNextTurnIndex(step);
     this.turnStartTime = Date.now();
     this.turnDuration = this.consumeTurnDuration();
+
+    // 明確標記本次狀態更新為「特殊牌淡出消失」，防止前端誤以為底下的舊頂牌被重新打出！
+    this.lastAction = {
+      type: 'special_vanished',
+      cardId: removedId,
+      timestamp: Date.now()
+    };
   }
 
   // 當兔兔盾牌反彈罰抽時，將牌發給下一位玩家（下家），但保留下家的出牌回合！

@@ -341,15 +341,6 @@ export function GameTableView({
           showToast('💨 抽牌完畢，回合結束！');
         }
       }
-    } else if (topCard && prevTopCardRef.current && prevTopCardRef.current.id !== topCard.id) {
-      const prevTurn = (currentTurn - direction + totalP) % totalP;
-      if (prevTurn !== myIndex) {
-        const fromEl = getPlayerRef(prevTurn);
-        if (fromEl && discardPileRef.current) {
-          const cardKey = topCard.displayAssetKey || topCard.assetKey;
-          cardAnimationService.animatePlayCard(fromEl, discardPileRef.current, cardKey);
-        }
-      }
     }
     prevTopCardRef.current = topCard;
 
