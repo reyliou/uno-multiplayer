@@ -353,7 +353,7 @@ export function GameTableView({
           setTimeout(() => setRabbidsEventBanner(''), 2500);
         } else if (lastAction.card.value === 'rabbids_explosive') {
           soundManager.playAction();
-          setRabbidsEventBanner(`💣 【${lastAction.playerName}】在抽牌堆安裝了瘋狂定時炸彈 (+4)！`);
+          setRabbidsEventBanner(`💣 【${lastAction.playerName}】在抽牌堆安裝了瘋狂定時炸彈 (+3)！`);
           setTimeout(() => setRabbidsEventBanner(''), 1800);
         } else if (lastAction.card.value === 'rabbids_hurry_up') {
           soundManager.playWild();
@@ -860,7 +860,7 @@ export function GameTableView({
               >
                 {explosiveActive && (
                   <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-20 px-2.5 py-0.5 rounded-full bg-red-600 text-[10px] font-black text-white border border-red-300 shadow-[0_0_12px_rgba(239,68,68,0.9)] animate-bounce flex items-center gap-1 whitespace-nowrap">
-                    <span>💣 +4 炸彈</span>
+                    <span>💣 +3 炸彈</span>
                   </div>
                 )}
                 <div
@@ -944,7 +944,7 @@ export function GameTableView({
             <div className="flex flex-col items-center gap-1.5 z-20 mt-1 mb-0.5">
               {explosiveActive && (
                 <div className="animate-bounce flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-gradient-to-r from-red-600 to-amber-600 border border-red-300 text-white text-[11px] font-black shadow-[0_0_20px_rgba(239,68,68,0.9)]">
-                  <span>💣 炸彈已安裝！下位抽牌者承受 +4 張炸彈重創！</span>
+                  <span>💣 炸彈已安裝！下位抽牌者將額外承受 +3 張炸彈重創！</span>
                 </div>
               )}
               {hurryUpTurns > 0 && (

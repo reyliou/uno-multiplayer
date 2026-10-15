@@ -340,6 +340,7 @@ export class HostGameController {
     if (this.engine.explosiveActive) {
       const extraBomb = this.engine.checkAndTriggerExplosive(playerIndex);
       const stepRes = this.engine.drawSingleCardStep(playerIndex);
+      this.engine.activePenaltyBanner = { playerId: playerIndex, count: extraBomb + 1 };
       this.emitSound('penalty');
       this.onBroadcastState();
 
@@ -408,9 +409,9 @@ export class HostGameController {
 
     if (this.engine.explosiveActive) {
       this.engine.explosiveActive = false;
-      this.engine.stackedDrawCount += 4;
+      this.engine.stackedDrawCount += 3;
       const victimName = this.engine.players[playerIndex]?.name || '玩家';
-      this.engine.addLog(`💥 轟！！！瘋狂定時炸彈在【${victimName}】承受罰抽時引爆！罰抽瞬間暴增 +4 張 (共 ${this.engine.stackedDrawCount} 張)！`);
+      this.engine.addLog(`💥 轟！！！瘋狂定時炸彈在【${victimName}】承受罰抽時引爆！罰抽瞬間暴增 +3 張 (共 ${this.engine.stackedDrawCount} 張)！`);
       this.emitSound('penalty');
     }
 
@@ -517,7 +518,8 @@ export class HostGameController {
         this.emitSound('penalty');
         this.onBroadcastState();
 
-        const totalFlightWaitMs = count * 220 + 850;
+        const actualCount = this.engine.activePenaltyBanner?.count || count;
+        const totalFlightWaitMs = actualCount * 220 + 850;
         setTimeout(() => {
           if (!this.engine || this.engine.gameStatus === 'game_over') return;
           this.engine.vanishTopSpecialCard(card.id);

@@ -153,12 +153,14 @@ export class UnoEngine {
     };
   }
 
-  // 當兔兔盾牌反彈罰抽時，將牌發給下一位玩家（下家），但保留下家的出牌回合！
+  // 當兔兔盾牌反彈罰抽時，將牌發給下一位玩家（下家），若抽牌堆有炸彈則一併引爆 (+3)！
   executeShieldDeflectDraw(victimIndex, count) {
     if (count <= 0 || !this.players[victimIndex]) return [];
-    this.activePenaltyBanner = { playerId: victimIndex, count };
+    const extraBomb = this.checkAndTriggerExplosive(victimIndex);
+    const totalCount = count + extraBomb;
+    this.activePenaltyBanner = { playerId: victimIndex, count: totalCount };
     const drawn = this.drawCardsForPlayer(victimIndex, count);
-    this.addLog(`🛡️ 兔兔盾牌反彈生效！【${this.players[victimIndex].name}】承受了 +${count} 張反彈抽牌，現在輪到 ${this.players[victimIndex].name} 出牌！`);
+    this.addLog(`🛡️ 兔兔盾牌反彈生效！【${this.players[victimIndex].name}】承受了 +${totalCount} 張抽牌${extraBomb > 0 ? ' (含炸彈引爆 +3 張)' : ''}，現在輪到 ${this.players[victimIndex].name} 出牌！`);
     return drawn;
   }
 
@@ -465,12 +467,12 @@ export class UnoEngine {
     if (!this.explosiveActive) return 0;
     this.explosiveActive = false;
     const player = this.players[playerIndex];
-    this.activePenaltyBanner = { playerId: playerIndex, count: 4 };
-    this.drawCardsForPlayer(playerIndex, 4);
+    this.activePenaltyBanner = { playerId: playerIndex, count: 3 };
+    this.drawCardsForPlayer(playerIndex, 3);
     if (player) {
-      this.addLog(`💥 轟！！！瘋狂定時炸彈在【${player.name}】抽牌時引爆！額外炸飛多抽 +4 張牌！`);
+      this.addLog(`💥 轟！！！瘋狂定時炸彈在【${player.name}】抽牌時引爆！額外炸飛多抽 +3 張牌！`);
     }
-    return 4;
+    return 3;
   }
 
   playCard(playerIndex, cardId, chosenColor = null) {
@@ -684,7 +686,7 @@ export class UnoEngine {
       effectMsg += ` ⚡ 瘋狂快抽觸發 (保留當前${this.colorNames[this.currentColor] || '底牌'})！接下來 ${this.playerCount} 個回合每位玩家只有 3 秒思考時間！`;
     } else if (card.value === 'rabbids_explosive') {
       this.explosiveActive = true;
-      effectMsg += ` 💣 炸彈已安裝在抽牌堆 (保留當前${this.colorNames[this.currentColor] || '底牌'})！下一位抽牌或罰抽的玩家將引爆炸彈 (額外 +4 張)！`;
+      effectMsg += ` 💣 炸彈已安裝在抽牌堆 (保留當前${this.colorNames[this.currentColor] || '底牌'})！下一位抽牌或受罰抽的玩家將引爆炸彈 (額外 +3 張)！`;
     } else if (card.value === 'rabbids_comin_through') {
       effectMsg += ` 🌪️ 瘋狂借過發動 (保留當前${this.colorNames[this.currentColor] || '底牌'})！準備展開兩波全場瘋狂發牌！`;
     } else if (card.value === 'rabbids_wild_shield') {
@@ -866,6 +868,10 @@ export class UnoEngine {
 
     const card = this.drawCardRaw();
     this.players[playerIndex].hand.push(card);
+    if (extraBombCards > 0) {
+      // 主動抽 1 張 + 炸彈 3 張 = 手牌上方顯示 +4
+      this.activePenaltyBanner = { playerId: playerIndex, count: 1 + extraBombCards };
+    }
     if (this.players[playerIndex].hand.length > 1) {
       this.players[playerIndex].calledUno = false;
       this.players[playerIndex].unoVulnerable = false;
@@ -1105,12 +1111,14 @@ export class UnoEngine {
   challengeUno(challengerIndex, targetIndex) {
     const target = this.players[targetIndex];
     if (target && target.hand.length === 1 && target.unoVulnerable) {
-      this.activePenaltyBanner = { playerId: targetIndex, count: 2 };
+      const extraBomb = this.checkAndTriggerExplosive(targetIndex);
+      const totalPenalty = 2 + extraBomb;
+      this.activePenaltyBanner = { playerId: targetIndex, count: totalPenalty };
       this.drawCardsForPlayer(targetIndex, 2);
       target.calledUno = false;
       target.unoVulnerable = false;
       target.pendingUnoCall = false;
-      this.addLog(`⚖️ 【${this.players[challengerIndex].name}】眼明手快抓到了【${target.name}】沒喊 UNO！${target.name} 被罰抽 2 張牌！`);
+      this.addLog(`⚖️ 【${this.players[challengerIndex].name}】眼明手快抓到了【${target.name}】沒喊 UNO！${target.name} 被罰抽 ${totalPenalty} 張牌${extraBomb > 0 ? ' (含炸彈 +3 張)' : ''}！`);
       return { success: true, caught: true, targetName: target.name };
     }
     return { success: false, reason: '對方已喊 UNO 或目前不可抓漏！' };
@@ -1192,27 +1200,30 @@ export class UnoEngine {
     if (!challengedPlayer || !challenger) return { success: false };
 
     if (isSuccess) {
-      // 質疑成功：被質疑者違規，被質疑者抽 4 張
-      this.activePenaltyBanner = { playerId: challengedIndex, count: 4 };
-      const drawnCards = this.drawCardsForPlayer(challengedIndex, 4);
+      // 質疑成功：違規出 +4 的上家最優先去抽牌堆受罰，因此若抽牌堆有炸彈 (+3)，由違規者引爆！(4 + 3 = 7 張)
+      const extraBomb = this.checkAndTriggerExplosive(challengedIndex);
+      const cheaterTotal = 4 + extraBomb;
+      this.activePenaltyBanner = { playerId: challengedIndex, count: cheaterTotal };
+      this.drawCardsForPlayer(challengedIndex, 4);
+
       const priorCount = info.priorStackedCount || 0;
 
-      let msg = `⚖️ 【${challenger.name}】質疑成功！【${challengedPlayer.name}】當時手牌中明明有【${info.targetColorName}】的牌 (${info.matchingCardNames.join('、')})，違規出 +4！${challengedPlayer.name} 被罰抽 4 張！`;
+      let msg = `⚖️ 【${challenger.name}】質疑成功！【${challengedPlayer.name}】手牌中明明有【${info.targetColorName}】的牌 (${info.matchingCardNames.join('、')})，違規出 +4！${challengedPlayer.name} 被罰抽 ${cheaterTotal} 張${extraBomb > 0 ? ' (含引爆炸彈 +3 張)' : ''}！`;
 
       this.lastWildDraw4Info = null;
       this.stackedDrawCount = 0;
       this.stackedDrawType = null;
       this.hasDrawnThisTurn = false;
 
-      let drawnCount = 4;
+      let drawnCount = cheaterTotal;
       let penaltyTargetIndex = challengedIndex;
       let nextPlayerTurn = challengerIndex;
 
       if (priorCount > 0) {
+        // 先前合法的累積罰抽仍由質疑者承受（此時炸彈已被違規者引爆完畢）
         this.drawCardsForPlayer(challengerIndex, priorCount);
         drawnCount += priorCount;
-        penaltyTargetIndex = challengerIndex;
-        msg += ` 但先前累積的罰抽 (+${priorCount} 張) 仍由 ${challenger.name} 承受，回合結束！`;
+        msg += ` 先前累積的罰抽 (+${priorCount} 張) 仍由 ${challenger.name} 承受，回合結束！`;
         this.addLog(msg);
         this.advanceTurn(1);
         nextPlayerTurn = this.currentTurn;
@@ -1240,12 +1251,14 @@ export class UnoEngine {
         msg
       };
     } else {
-      // 質疑失敗：被質疑者無罪，質疑者承受原有罰抽 + 額外 2 張
-      const totalPenalty = (this.stackedDrawCount || 4) + 2;
+      // 質疑失敗：被質疑者無罪，由質疑者承受原有罰抽 + 額外 2 張；若抽牌堆有炸彈 (+3) 也由質疑者引爆！
+      const extraBomb = this.checkAndTriggerExplosive(challengerIndex);
+      const basePenalty = (this.stackedDrawCount || 4) + 2;
+      const totalPenalty = basePenalty + extraBomb;
       this.activePenaltyBanner = { playerId: challengerIndex, count: totalPenalty };
-      this.drawCardsForPlayer(challengerIndex, totalPenalty);
+      this.drawCardsForPlayer(challengerIndex, basePenalty);
 
-      const msg = `⚖️ 【${challenger.name}】質疑失敗！【${challengedPlayer.name}】當時確實無【${info.targetColorName}】的手牌！${challenger.name} 承受所有罰抽加罰 2 張 (共抽 ${totalPenalty} 張) 並跳過回合！`;
+      const msg = `⚖️ 【${challenger.name}】質疑失敗！【${challengedPlayer.name}】當時確實無【${info.targetColorName}】的手牌！${challenger.name} 承受罰抽共 ${totalPenalty} 張${extraBomb > 0 ? ' (含引爆炸彈 +3 張)' : ''}並跳過回合！`;
       this.addLog(msg);
 
       this.lastWildDraw4Info = null;
@@ -1337,7 +1350,7 @@ export class UnoEngine {
     if (card.value === 'wild') return `萬用牌 (Wild)`;
     if (card.value === 'wild_draw4') return `萬用 +4 罰抽牌 (Wild Draw 4)`;
     if (card.value === 'rabbids_hurry_up') return `瘋狂快抽 Hurry Up! (3秒限時)`;
-    if (card.value === 'rabbids_explosive') return `瘋狂定時炸彈 Explosive (+4 Extra)`;
+    if (card.value === 'rabbids_explosive') return `瘋狂定時炸彈 Explosive (+3 Extra)`;
     if (card.value === 'rabbids_comin_through') return `瘋狂借過 Comin' Through (兩波發牌)`;
     if (card.value === 'rabbids_wild_shield') return `瘋狂兔兔盾牌 Wild Shield (防禦/變色)`;
     return `${colName} ${card.value}`;
