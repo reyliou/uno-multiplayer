@@ -1,4 +1,5 @@
-// unoEngine.js - Authoritative UNO Game Engine with Stacking, State Masking & 2v2 Team Mode
+// 檔案位置：src/game/unoEngine.js
+// Authoritative UNO Game Engine with Stacking, State Masking, 2v2 Team Mode & Rabbids DLC
 
 export class UnoEngine {
   constructor(playerCount = 4, customPlayers = null, allowStacking = true, gameMode = 'ffa', options = {}) {
@@ -22,7 +23,7 @@ export class UnoEngine {
 
     this.allowStacking = allowStacking;
     this.customPlayers = customPlayers;
-    this.targetScore = options.targetScore !== undefined ? options.targetScore : 500; // 0 = casual/no score limit
+    this.targetScore = options.targetScore !== undefined ? options.targetScore : 500;
     this.drawRule = options.drawRule || 'draw_one'; // 'draw_one' | 'draw_until_playable'
     this.allowChallengeWildDraw4 = options.allowChallengeWildDraw4 !== undefined ? options.allowChallengeWildDraw4 : true;
     this.deckTheme = options.deckTheme || 'classic'; // 'classic' | 'rabbids'
@@ -33,7 +34,6 @@ export class UnoEngine {
   }
 
   reset() {
-    // Rabbids DLC theme special states
     this.hurryUpTurns = 0;
     this.explosiveActive = false;
     this.vanishingCardId = null;
@@ -43,21 +43,17 @@ export class UnoEngine {
     this.shuffle(this.drawPile);
     this.discardPile = [];
 
-    // Stacking penalty pool
     this.stackedDrawCount = 0;
-    this.stackedDrawType = null; // 'draw2' or 'wild_draw4'
-    this.lastWildDraw4Info = null; // Tracks info for +4 challenge
+    this.stackedDrawType = null;
+    this.lastWildDraw4Info = null;
     this.pendingWildDraw4Info = null;
 
-    // Continuous drawing / effect animation lock state
     this.isContinuousDrawing = false;
     this.drawingPlayerIndex = null;
     this.drawingStepCount = 0;
 
-    // Preserve existing scores across rounds if players already exist
     const existingScores = this.players ? this.players.map(p => p.score) : null;
 
-    // Players setup
     this.players = [];
     for (let i = 0; i < this.playerCount; i++) {
       const pInfo = this.customPlayers ? this.customPlayers[i] : null;
@@ -87,14 +83,12 @@ export class UnoEngine {
       });
     }
 
-    // Deal 7 cards to each player
     for (let r = 0; r < 7; r++) {
       for (let p = 0; p < this.playerCount; p++) {
         this.players[p].hand.push(this.drawCardRaw());
       }
     }
 
-    // Flip first card (must not be Wild or Rabbids special card)
     let firstCard = this.drawCardRaw();
     while (firstCard.value === 'wild_draw4' || firstCard.color === 'wild' || firstCard.value.startsWith('rabbids_')) {
       this.drawPile.unshift(firstCard);
@@ -108,10 +102,10 @@ export class UnoEngine {
       firstCard.chosenColor = this.currentColor;
     }
     this.currentValue = firstCard.value;
-    this.direction = 1; // 1 = clockwise, -1 = counter-clockwise
+    this.direction = 1;
     this.currentTurn = 0;
     this.gameStatus = 'playing';
-    this.isDealing = true; // Opening deal phase
+    this.isDealing = true;
     this.winner = null;
     this.log = [];
     this.hasDrawnThisTurn = false;
@@ -121,12 +115,9 @@ export class UnoEngine {
     this.colorChoosingPlayerIndex = null;
     this.pendingWildCard = null;
 
-    // Record initial card action to be applied after dealing animation finishes
     this.initialCard = firstCard;
   }
 
-  // Steam UNO Rabbids: Remove temporary special card (Hurry Up, Explosive, Comin' Through, or Deflecting Shield)
-  // after its tabletop animation finishes, AND only then advance the turn to the next player!
   vanishTopSpecialCard(cardId) {
     const idx = this.discardPile.findIndex(c => c.id === cardId);
     if (idx !== -1 && this.discardPile.length > 1) {
@@ -145,9 +136,6 @@ export class UnoEngine {
     }
   }
 
-  // Steam UNO Rabbids: Two-wave card distribution for Comin' Through!
-  // Wave 1: Deals cards to everyone EXCEPT the player who played it.
-  // Wave 2: Deals cards to EVERYONE including the player who played it.
   executeCominThroughWave(casterIndex, wave = 1) {
     const drawnInfo = [];
     if (wave === 1) {
@@ -215,7 +203,6 @@ export class UnoEngine {
     let idCounter = 1;
 
     for (const color of this.colors) {
-      // 1x '0'
       deck.push({
         id: `c_${idCounter++}`,
         color,
@@ -224,7 +211,6 @@ export class UnoEngine {
         points: 0
       });
 
-      // 2x '1'..'9'
       for (let n = 1; n <= 9; n++) {
         const val = n.toString();
         deck.push({
@@ -243,7 +229,6 @@ export class UnoEngine {
         });
       }
 
-      // 2x Skip, 2x Reverse, 2x Draw 2
       ['skip', 'reverse', 'draw2'].forEach(action => {
         deck.push({
           id: `c_${idCounter++}`,
@@ -262,7 +247,6 @@ export class UnoEngine {
       });
     }
 
-    // 4x Wild, 4x Wild Draw 4
     for (let i = 0; i < 4; i++) {
       deck.push({
         id: `c_${idCounter++}`,
@@ -280,7 +264,6 @@ export class UnoEngine {
       });
     }
 
-    // In Rabbids DLC mode, add 2x of each of the 4 special Rabbids action cards (total 8 cards)
     if (this.deckTheme === 'rabbids') {
       for (let i = 0; i < 2; i++) {
         deck.push({
@@ -371,13 +354,12 @@ export class UnoEngine {
     return this.discardPile[this.discardPile.length - 1];
   }
 
-  // Pure card legality check (MUST NOT check isContinuousDrawing here so draw_until_playable can detect playable drawn cards!)
+  // Pure rule check (Never block on isContinuousDrawing here so 'draw_until_playable' can check drawn cards!)
   canPlayCard(card) {
     if (!card) return false;
     if (this.isChoosingColor) return false;
 
     if (this.stackedDrawCount > 0) {
-      // In Rabbids mode, rabbids_wild_shield can ALWAYS be played to defend and deflect incoming stacked draw!
       if (card.value === 'rabbids_wild_shield') return true;
       if (!this.allowStacking) return false;
       return card.value === this.stackedDrawType;
@@ -390,7 +372,7 @@ export class UnoEngine {
   }
 
   getValidCardsForPlayer(playerIndex) {
-    if (this.isContinuousDrawing || this.isDealing) return [];
+    if (this.isContinuousDrawing) return [];
     const p = this.players[playerIndex];
     if (!p) return [];
     return p.hand.filter(c => this.canPlayCard(c));
@@ -420,12 +402,10 @@ export class UnoEngine {
     return best;
   }
 
-  // Helper to resolve current active turn duration (3s during Hurry Up, 15s normal)
   getActiveTurnDuration() {
     return this.hurryUpTurns > 0 ? 3 : 15;
   }
 
-  // Consume 1 turn of Hurry Up and return the duration for the newly started turn
   consumeTurnDuration() {
     if (this.hurryUpTurns > 0) {
       this.hurryUpTurns--;
@@ -434,7 +414,6 @@ export class UnoEngine {
     return 15;
   }
 
-  // Trigger Explosive Bomb if active when a player is forced to draw
   checkAndTriggerExplosive(playerIndex) {
     if (!this.explosiveActive) return 0;
     this.explosiveActive = false;
@@ -560,10 +539,6 @@ export class UnoEngine {
       };
     }
 
-    // Steam UNO Rabbids Rule Check:
-    // - rabbids_hurry_up, rabbids_explosive, rabbids_comin_through NEVER change color and vanish after activation!
-    // - rabbids_wild_shield ONLY changes color when played normally (stackedDrawCount === 0).
-    //   When played defensively against a +2/+4 stack (stackedDrawCount > 0), it does NOT change color and vanishes after blocking!
     const isVanishingRabbidsCard =
       card.value === 'rabbids_hurry_up' ||
       card.value === 'rabbids_explosive' ||
@@ -606,7 +581,6 @@ export class UnoEngine {
     let nextStep = 1;
 
     if (isVanishingRabbidsCard) {
-      // Keep the existing currentColor and currentValue intact!
       card.displayAssetKey = card.assetKey;
       this.vanishingCardId = card.id;
     } else if (card.color === 'wild') {
@@ -655,7 +629,6 @@ export class UnoEngine {
       }
     }
 
-    // Handle Rabbids DLC Special Action Cards
     if (card.value === 'rabbids_hurry_up') {
       this.hurryUpTurns = this.playerCount;
       effectMsg += ` ⚡ 瘋狂快抽觸發 (保留當前${this.colorNames[this.currentColor] || '底牌'})！接下來 ${this.playerCount} 個回合每位玩家只有 3 秒思考時間！`;
@@ -708,8 +681,6 @@ export class UnoEngine {
 
     this.hasDrawnThisTurn = false;
 
-    // If this is a vanishing Rabbids event card (Hurry Up, Explosive, Comin' Through, or Deflecting Shield),
-    // DO NOT advance currentTurn yet! Hold the turn until the effect waves & fade-out animation finish!
     if (isVanishingRabbidsCard) {
       this.pendingAdvanceStep = nextStep;
       this.isContinuousDrawing = true;
@@ -844,7 +815,6 @@ export class UnoEngine {
       this.players[playerIndex].pendingUnoCall = false;
     }
 
-    // Official Steam Rule: If the Explosive Bomb detonated (+4 cards), your turn ends after drawing!
     const canPlay = extraBombCards > 0 ? false : this.canPlayCard(card);
     this.addLog(`${this.players[playerIndex].name} 抽了一張牌。`);
 

@@ -1,6 +1,10 @@
-// GameTableView.jsx - 2.5D Perspective Casino Felt Table Layout
+// 檔案位置：src/components/GameTableView.jsx
+// 2.5D Perspective Casino Felt Table Layout (Modularized with ./table/* Subcomponents)
 import React, { useState, useRef, useEffect } from 'react';
 import { CardView } from './CardView';
+import { OpponentHand3D } from './table/OpponentHand3D';
+import { PlayerInfoPill } from './table/PlayerInfoPill';
+import { WildColorModal } from './table/WildColorModal';
 import {
   Volume2,
   VolumeX,
@@ -14,7 +18,6 @@ import {
   UserCheck,
   Swords,
   Sparkles,
-  UserMinus,
   LogOut
 } from 'lucide-react';
 import { soundManager } from '../services/sound';
@@ -43,81 +46,6 @@ function sortHandCards(cards) {
   });
 }
 
-// Circular Countdown Timer
-function TurnTimerCircle({ turnStartTime, duration = 15, isLocal = false }) {
-  const [remaining, setRemaining] = useState(duration);
-  const prevTickRef = useRef(null);
-
-  useEffect(() => {
-    const startTime = turnStartTime || Date.now();
-    const update = () => {
-      const elapsed = (Date.now() - startTime) / 1000;
-      const rem = Math.max(0, duration - elapsed);
-      setRemaining(rem);
-
-      if (isLocal && rem > 0 && rem <= 3) {
-        const sec = Math.ceil(rem);
-        if (prevTickRef.current !== sec) {
-          prevTickRef.current = sec;
-          soundManager.playTick();
-        }
-      }
-    };
-
-    update();
-    const interval = setInterval(update, 100);
-    return () => clearInterval(interval);
-  }, [turnStartTime, duration, isLocal]);
-
-  const progress = Math.min(1, Math.max(0, remaining / duration));
-  const r = 13;
-  const circumference = 2 * Math.PI * r;
-  const offset = circumference * (1 - progress);
-
-  const isLow = remaining <= 5;
-  const isCritical = remaining <= 2;
-  const strokeColor = isCritical ? '#ef4444' : (isLow ? '#f59e0b' : '#10b981');
-
-  return (
-    <div
-      className={`relative flex items-center justify-center transition-all select-none ${
-        isCritical ? 'animate-pulse scale-105' : ''
-      }`}
-      title={`思考限時 ${duration} 秒（剩餘 ${Math.ceil(remaining)} 秒）`}
-    >
-      <svg className="w-8 h-8 sm:w-8.5 sm:h-8.5 -rotate-90 drop-shadow-md" viewBox="0 0 34 34">
-        <circle
-          cx="17"
-          cy="17"
-          r={r}
-          stroke="rgba(255, 255, 255, 0.16)"
-          strokeWidth="3.2"
-          fill="rgba(10, 28, 18, 0.85)"
-        />
-        <circle
-          cx="17"
-          cy="17"
-          r={r}
-          stroke={strokeColor}
-          strokeWidth="3.2"
-          fill="none"
-          strokeDasharray={circumference}
-          strokeDashoffset={offset}
-          strokeLinecap="round"
-          style={{ transition: 'stroke-dashoffset 100ms linear, stroke 250ms ease' }}
-        />
-      </svg>
-      <span
-        className={`absolute text-[11px] font-black tracking-tighter ${
-          isCritical ? 'text-red-400 font-extrabold' : (isLow ? 'text-amber-300' : 'text-emerald-300')
-        }`}
-      >
-        {Math.ceil(remaining)}
-      </span>
-    </div>
-  );
-}
-
 export function GameTableView({
   gameState,
   onPlayCard,
@@ -137,7 +65,6 @@ export function GameTableView({
   const [copiedCode, setCopiedCode] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
 
-  // Hand Collapse & Sort Animation States
   const [isHandCollapsed, setIsHandCollapsed] = useState(false);
   const [isSorted, setIsSorted] = useState(true);
   const [skippedPlayerInfo, setSkippedPlayerInfo] = useState(null);
@@ -195,10 +122,8 @@ export function GameTableView({
   } = gameState || {};
 
   const is2v2 = gameMode === '2v2';
-  // Only highlight and allow local play when NOT in the middle of an active effect/draw transition!
   const isMyTurn = currentTurn === myIndex && !isContinuousDrawing && !isDealing;
 
-  // Visually synchronized hand cards & opponent counts
   const [displayedHand, setDisplayedHand] = useState(myHand);
   const [displayedCounts, setDisplayedCounts] = useState({});
   const initialSyncRef = useRef(false);
@@ -226,105 +151,10 @@ export function GameTableView({
 
   const myPlayer = players[myIndex] || { name: '你 (玩家)', cardCount: displayedHand.length };
 
-  // Keep flying card animation service synced with current deck theme ('classic' | 'rabbids')
   useEffect(() => {
     cardAnimationService.setDeckTheme(deckTheme);
   }, [deckTheme]);
 
-  // Render standing opponent cards
-  const renderOpponentCards = (count, side = 'top') => {
-    const cardCount = typeof count === 'number' ? count : 1;
-    const visualCount = Math.min(Math.max(cardCount, 1), 7);
-
-    if (side === 'left') {
-      return (
-        <div
-          className="relative flex items-center justify-center"
-          style={{ width: '180px', height: '210px' }}
-        >
-          {Array.from({ length: visualCount }).map((_, idx) => {
-            const offset = idx - (visualCount - 1) / 2;
-            const tx = -offset * 14;
-            const ty = offset * 20;
-            const depthScale = 0.96 + (offset / Math.max(visualCount, 1)) * 0.18;
-
-            return (
-              <div
-                key={idx}
-                style={{
-                  position: 'absolute',
-                  transform: `translate(${tx}px, ${ty}px) perspective(520px) rotateY(42deg) rotateX(6deg) rotateZ(-8deg) scale(${depthScale})`,
-                  transformStyle: 'preserve-3d',
-                  zIndex: idx + 1
-                }}
-                className="transition-all duration-200 drop-shadow-[-8px_10px_14px_rgba(0,0,0,0.8)] card-reflection"
-              >
-                <CardView deckTheme={gameState?.deckTheme || 'classic'}
-                  isBack
-                  isSmall
-                  className="!w-[72px] !h-[108px] sm:!w-[84px] sm:!h-[126px] !rounded-xl"
-                />
-              </div>
-            );
-          })}
-        </div>
-      );
-    }
-
-    if (side === 'right') {
-      return (
-        <div
-          className="relative flex items-center justify-center"
-          style={{ width: '180px', height: '210px' }}
-        >
-          {Array.from({ length: visualCount }).map((_, idx) => {
-            const offset = idx - (visualCount - 1) / 2;
-            const tx = offset * 14;
-            const ty = offset * 20;
-            const depthScale = 0.96 + (offset / Math.max(visualCount, 1)) * 0.18;
-
-            return (
-              <div
-                key={idx}
-                style={{
-                  position: 'absolute',
-                  transform: `translate(${tx}px, ${ty}px) perspective(520px) rotateY(-42deg) rotateX(6deg) rotateZ(8deg) scale(${depthScale})`,
-                  transformStyle: 'preserve-3d',
-                  zIndex: idx + 1
-                }}
-                className="transition-all duration-200 drop-shadow-[8px_10px_14px_rgba(0,0,0,0.8)] card-reflection"
-              >
-                <CardView deckTheme={gameState?.deckTheme || 'classic'}
-                  isBack
-                  isSmall
-                  className="!w-[72px] !h-[108px] sm:!w-[84px] sm:!h-[126px] !rounded-xl"
-                />
-              </div>
-            );
-          })}
-        </div>
-      );
-    }
-
-    return (
-      <div className="flex items-center justify-center -space-x-4 sm:-space-x-5 card-reflection">
-        {Array.from({ length: visualCount }).map((_, idx) => (
-          <div
-            key={idx}
-            className="transition-transform duration-150 drop-shadow-[0_8px_14px_rgba(0,0,0,0.7)]"
-          >
-            <CardView deckTheme={gameState?.deckTheme || 'classic'}
-              isBack
-              isSmall
-              className="!w-[64px] !h-[96px] sm:!w-[74px] sm:!h-[110px] !rounded-lg"
-            />
-          </div>
-        ))}
-      </div>
-    );
-  };
-
-  // Turn-based state for contextual actions
   const [localHasDrawn, setLocalHasDrawn] = useState(false);
   const hasDrawnThisTurn = isMyTurn && (localHasDrawn || remoteHasDrawn);
 
@@ -369,7 +199,7 @@ export function GameTableView({
     return null;
   };
 
-  // Trigger Opening Deal Animation when isDealing is true
+  // Opening Deal Animation
   const hasAnimatedDealRef = useRef(false);
   const dealTimerRef = useRef(null);
   const wasDealingRef = useRef(false);
@@ -519,7 +349,6 @@ export function GameTableView({
       return;
     }
 
-    // For local player's hand:
     if (myHand.length < displayedHand.length) {
       setDisplayedHand(myHand);
     } else if (myHand.length > displayedHand.length) {
@@ -546,7 +375,6 @@ export function GameTableView({
       });
     }
 
-    // For opponents:
     players.forEach((p) => {
       if (p.id === myIndex) return;
       const scheduledCount = inflightOpponentCountsRef.current[p.id] !== undefined
@@ -788,120 +616,43 @@ export function GameTableView({
       </header>
 
       {/* ============================================================== */}
-      {/* UNIFIED 2.5D ARENA STAGE (Table Surface + All 4 Seats Inside)  */}
+      {/* UNIFIED 2.5D ARENA STAGE                                       */}
       {/* ============================================================== */}
       <main className="arena-stage">
-
-        {/* 1. Background 3D Tilted Casino Table Surface */}
         <div className="table-surface-3d" />
 
-        {/* 2. TOP SEAT (Sits cleanly inside the top rim of the table) */}
+        {/* TOP SEAT */}
         {topPlayer && (
           <div
             ref={topPlayerRef}
             className="absolute top-3 sm:top-5 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-1.5 pointer-events-auto"
           >
-            {/* Top Player Info Pill */}
-            <div className="flex items-center gap-2">
-              <div
-                className={`flex items-center gap-2.5 px-3.5 py-1 rounded-full border shadow-lg backdrop-blur-md transition-all duration-200 ${
-                  skippedPlayerInfo && topPlayer.id === skippedPlayerInfo.playerId
-                    ? 'skip-shake ring-4 ring-red-500 bg-red-950/90 border-red-400'
-                    : (((currentTurn === topPlayer.id && !isDealing && !isContinuousDrawing) || (isChoosingColor && colorChoosingPlayerIndex === topPlayer.id)))
-                    ? 'active-turn-ring scale-105'
-                    : 'bg-[#0a1c12]/95 border-white/20'
-                }`}
-              >
-                <div className="w-6 h-6 rounded-full bg-[#1e3a2b] border border-white/20 flex items-center justify-center text-xs">
-                  {isTeammateTop ? '🤝' : '🤖'}
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-white flex items-center gap-1">
-                    {topPlayer.name}
-                    {isTeammateTop && (
-                      <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-amber-400/20 text-amber-300 font-extrabold border border-amber-400/40">
-                        隊友
-                      </span>
-                    )}
-                  </span>
-                  <span className="text-[11px] text-emerald-300 font-mono font-bold">
-                    {(displayedCounts[topPlayer.id] !== undefined ? displayedCounts[topPlayer.id] : topPlayer.cardCount)} 張
-                  </span>
-                </div>
+            <PlayerInfoPill
+              player={topPlayer}
+              cardCount={displayedCounts[topPlayer.id] !== undefined ? displayedCounts[topPlayer.id] : topPlayer.cardCount}
+              avatar={isTeammateTop ? '🤝' : '🤖'}
+              isTeammate={isTeammateTop}
+              isHost={isHost}
+              isActiveTurn={currentTurn === topPlayer.id && !isDealing && !isContinuousDrawing}
+              isSkipped={skippedPlayerInfo && topPlayer.id === skippedPlayerInfo.playerId}
+              isChoosingColor={isChoosingColor && colorChoosingPlayerIndex === topPlayer.id}
+              isContinuousDrawing={isContinuousDrawing && drawingPlayerIndex === topPlayer.id}
+              drawingStepCount={drawingStepCount}
+              showTimer={((currentTurn === topPlayer.id && !isChoosingColor) || (isChoosingColor && colorChoosingPlayerIndex === topPlayer.id)) && !isDealing && !isContinuousDrawing && gameState?.gameStatus !== 'game_over'}
+              turnStartTime={turnStartTime}
+              turnDuration={turnDuration || (isChoosingColor ? 6 : 15)}
+              timerPosition="right"
+              onKickPlayer={onKickPlayer}
+            />
 
-                {skippedPlayerInfo && topPlayer.id === skippedPlayerInfo.playerId && (
-                  <span className="px-2 py-0.5 rounded-full bg-red-600 text-white font-black text-[10px] shadow animate-bounce border border-yellow-300">
-                    跳過！
-                  </span>
-                )}
-                {topPlayer.calledUno && (
-                  <span className="px-2 py-0.5 rounded-full bg-red-600 text-yellow-300 font-black text-[10px] shadow animate-pulse">
-                    UNO!
-                  </span>
-                )}
-                {isChoosingColor && colorChoosingPlayerIndex === topPlayer.id ? (
-                  <span className="text-[10px] font-bold text-purple-300 animate-pulse">
-                    選色中
-                  </span>
-                ) : isContinuousDrawing && drawingPlayerIndex === topPlayer.id ? (
-                  <span className="text-[10px] font-bold text-sky-300 animate-pulse flex items-center gap-1">
-                    <RotateCw className="w-2.5 h-2.5 animate-spin" />
-                    抽牌中 ({drawingStepCount || 1})
-                  </span>
-                ) : currentTurn === topPlayer.id && !skippedPlayerInfo && !isDealing && !isContinuousDrawing ? (
-                  <span className="text-[10px] font-bold text-yellow-300 animate-pulse">
-                    思考中
-                  </span>
-                ) : null}
-
-                {topPlayer.timeoutCount > 0 && (
-                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-amber-500/20 text-amber-300 font-extrabold border border-amber-500/40" title="超時累積次數 (達 2 次將由 AI 接管)">
-                    ⏰ {topPlayer.timeoutCount}/2
-                  </span>
-                )}
-                {isHost && !topPlayer.isHost && !topPlayer.isAi && onKickPlayer && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (window.confirm(`確定要將【${topPlayer.name}】移出牌局並轉由 AI 接管嗎？`)) {
-                        onKickPlayer(topPlayer.id);
-                      }
-                    }}
-                    title="踢除此玩家並轉由 AI 接管"
-                    className="p-1 rounded-full bg-red-600/80 hover:bg-red-500 text-white transition shadow ml-1 cursor-pointer"
-                  >
-                    <UserMinus className="w-3 h-3" />
-                  </button>
-                )}
-              </div>
-
-              {((currentTurn === topPlayer.id && !isChoosingColor) || (isChoosingColor && colorChoosingPlayerIndex === topPlayer.id)) && !isDealing && !isContinuousDrawing && gameState?.gameStatus !== 'game_over' && (
-                <TurnTimerCircle turnStartTime={turnStartTime} duration={turnDuration || (isChoosingColor ? 6 : 15)} />
-              )}
-            </div>
-
-            {/* Crisp High-Res Teammate Face-Up Cards OR Opponent Level Row */}
             <div className="flex items-center justify-center mt-0.5">
-              {isTeammateTop ? (
-                <div className="flex items-center -space-x-3 sm:-space-x-4 card-reflection">
-                  {teammateHand.map((c, cIdx) => (
-                    <div
-                      key={c.id || cIdx}
-                      className="transition-transform duration-150 hover:-translate-y-2 hover:scale-110 hover:z-30 cursor-pointer"
-                      title={`隊友手牌: ${c.color} ${c.value}`}
-                    >
-                      <CardView deckTheme={gameState?.deckTheme || 'classic'}
-                        card={c}
-                        isSmall
-                        className="!w-[64px] !h-[96px] sm:!w-[74px] sm:!h-[110px] !rounded-lg drop-shadow-[0_8px_16px_rgba(0,0,0,0.6)]"
-                      />
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                renderOpponentCards(displayedCounts[topPlayer.id] !== undefined ? displayedCounts[topPlayer.id] : topPlayer.cardCount, 'top')
-              )}
+              <OpponentHand3D
+                side="top"
+                count={displayedCounts[topPlayer.id] !== undefined ? displayedCounts[topPlayer.id] : topPlayer.cardCount}
+                deckTheme={deckTheme}
+                isTeammateTop={isTeammateTop}
+                teammateHand={teammateHand}
+              />
             </div>
 
             {topPlayer.unoVulnerable && (
@@ -917,70 +668,34 @@ export function GameTableView({
           </div>
         )}
 
-        {/* 3. LEFT SEAT */}
+        {/* LEFT SEAT */}
         {leftPlayer && (
           <div
             ref={leftPlayerRef}
             className="absolute left-[5%] sm:left-[9%] md:left-[11.5%] top-[43%] -translate-y-1/2 z-20 flex flex-col items-center gap-1.5 pointer-events-auto"
           >
-            <div className="flex items-center gap-2">
-              <div
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-full border shadow-xl backdrop-blur-md transition-all duration-200 ${
-                  skippedPlayerInfo && leftPlayer.id === skippedPlayerInfo.playerId
-                    ? 'skip-shake ring-4 ring-red-500 bg-red-950/90 border-red-400'
-                    : (((currentTurn === leftPlayer.id && !isDealing && !isContinuousDrawing) || (isChoosingColor && colorChoosingPlayerIndex === leftPlayer.id)))
-                    ? 'active-turn-ring scale-105'
-                    : 'bg-[#0a1c12]/95 border-white/20'
-                }`}
-              >
-                <div className="w-7 h-7 rounded-full bg-[#1e3a2b] border border-white/20 flex items-center justify-center text-sm">
-                  👾
-                </div>
-                <div className="flex flex-col">
-                  <span className="text-xs font-bold text-white max-w-[75px] truncate">
-                    {leftPlayer.name}
-                  </span>
-                  <span className="text-[10px] text-emerald-300 font-bold">
-                    {(displayedCounts[leftPlayer.id] !== undefined ? displayedCounts[leftPlayer.id] : leftPlayer.cardCount)} 張牌
-                  </span>
-                </div>
-                {skippedPlayerInfo && leftPlayer.id === skippedPlayerInfo.playerId && (
-                  <span className="px-1.5 py-0.5 rounded-full bg-red-600 text-white font-black text-[9px] shadow animate-bounce border border-yellow-300">
-                    跳過！
-                  </span>
-                )}
-                {leftPlayer.calledUno && (
-                  <span className="px-1.5 py-0.5 rounded-full bg-red-600 text-yellow-300 font-black text-[9px] shadow animate-pulse">
-                    UNO!
-                  </span>
-                )}
-                {leftPlayer.timeoutCount > 0 && (
-                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-amber-500/20 text-amber-300 font-extrabold border border-amber-500/40" title="超時累積次數 (達 2 次將由 AI 接管)">
-                    ⏰ {leftPlayer.timeoutCount}/2
-                  </span>
-                )}
-                {isHost && !leftPlayer.isHost && !leftPlayer.isAi && onKickPlayer && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (window.confirm(`確定要將【${leftPlayer.name}】移出牌局並轉由 AI 接管嗎？`)) {
-                        onKickPlayer(leftPlayer.id);
-                      }
-                    }}
-                    title="踢除此玩家並轉由 AI 接管"
-                    className="p-1 rounded-full bg-red-600/80 hover:bg-red-500 text-white transition shadow ml-1 cursor-pointer"
-                  >
-                    <UserMinus className="w-3 h-3" />
-                  </button>
-                )}
-              </div>
-              {((currentTurn === leftPlayer.id && !isChoosingColor) || (isChoosingColor && colorChoosingPlayerIndex === leftPlayer.id)) && !isDealing && !isContinuousDrawing && gameState?.gameStatus !== 'game_over' && (
-                <TurnTimerCircle turnStartTime={turnStartTime} duration={turnDuration || (isChoosingColor ? 6 : 15)} />
-              )}
-            </div>
+            <PlayerInfoPill
+              player={leftPlayer}
+              cardCount={displayedCounts[leftPlayer.id] !== undefined ? displayedCounts[leftPlayer.id] : leftPlayer.cardCount}
+              avatar="👾"
+              isHost={isHost}
+              isActiveTurn={currentTurn === leftPlayer.id && !isDealing && !isContinuousDrawing}
+              isSkipped={skippedPlayerInfo && leftPlayer.id === skippedPlayerInfo.playerId}
+              isChoosingColor={isChoosingColor && colorChoosingPlayerIndex === leftPlayer.id}
+              isContinuousDrawing={isContinuousDrawing && drawingPlayerIndex === leftPlayer.id}
+              drawingStepCount={drawingStepCount}
+              showTimer={((currentTurn === leftPlayer.id && !isChoosingColor) || (isChoosingColor && colorChoosingPlayerIndex === leftPlayer.id)) && !isDealing && !isContinuousDrawing && gameState?.gameStatus !== 'game_over'}
+              turnStartTime={turnStartTime}
+              turnDuration={turnDuration || (isChoosingColor ? 6 : 15)}
+              timerPosition="right"
+              onKickPlayer={onKickPlayer}
+            />
 
-            {renderOpponentCards(displayedCounts[leftPlayer.id] !== undefined ? displayedCounts[leftPlayer.id] : leftPlayer.cardCount, 'left')}
+            <OpponentHand3D
+              side="left"
+              count={displayedCounts[leftPlayer.id] !== undefined ? displayedCounts[leftPlayer.id] : leftPlayer.cardCount}
+              deckTheme={deckTheme}
+            />
 
             {leftPlayer.unoVulnerable && (
               <button
@@ -995,70 +710,34 @@ export function GameTableView({
           </div>
         )}
 
-        {/* 4. RIGHT SEAT */}
+        {/* RIGHT SEAT */}
         {rightPlayer && (
           <div
             ref={rightPlayerRef}
             className="absolute right-[5%] sm:right-[9%] md:right-[11.5%] top-[43%] -translate-y-1/2 z-20 flex flex-col items-center gap-1.5 pointer-events-auto"
           >
-            <div className="flex items-center gap-2">
-              {((currentTurn === rightPlayer.id && !isChoosingColor) || (isChoosingColor && colorChoosingPlayerIndex === rightPlayer.id)) && !isDealing && !isContinuousDrawing && gameState?.gameStatus !== 'game_over' && (
-                <TurnTimerCircle turnStartTime={turnStartTime} duration={turnDuration || (isChoosingColor ? 6 : 15)} />
-              )}
-              <div
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-full border shadow-xl backdrop-blur-md transition-all duration-200 ${
-                  skippedPlayerInfo && rightPlayer.id === skippedPlayerInfo.playerId
-                    ? 'skip-shake ring-4 ring-red-500 bg-red-950/90 border-red-400'
-                    : (((currentTurn === rightPlayer.id && !isDealing && !isContinuousDrawing) || (isChoosingColor && colorChoosingPlayerIndex === rightPlayer.id)))
-                    ? 'active-turn-ring scale-105'
-                    : 'bg-[#0a1c12]/95 border-white/20'
-                }`}
-              >
-                <div className="w-7 h-7 rounded-full bg-[#1e3a2b] border border-white/20 flex items-center justify-center text-sm">
-                  🎯
-                </div>
-                <div className="flex flex-col">
-                  <span className="text-xs font-bold text-white max-w-[75px] truncate">
-                    {rightPlayer.name}
-                  </span>
-                  <span className="text-[10px] text-emerald-300 font-bold">
-                    {(displayedCounts[rightPlayer.id] !== undefined ? displayedCounts[rightPlayer.id] : rightPlayer.cardCount)} 張牌
-                  </span>
-                </div>
-                {skippedPlayerInfo && rightPlayer.id === skippedPlayerInfo.playerId && (
-                  <span className="px-1.5 py-0.5 rounded-full bg-red-600 text-white font-black text-[9px] shadow animate-bounce border border-yellow-300">
-                    跳過！
-                  </span>
-                )}
-                {rightPlayer.calledUno && (
-                  <span className="px-1.5 py-0.5 rounded-full bg-red-600 text-yellow-300 font-black text-[9px] shadow animate-pulse">
-                    UNO!
-                  </span>
-                )}
-                {rightPlayer.timeoutCount > 0 && (
-                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-amber-500/20 text-amber-300 font-extrabold border border-amber-500/40" title="超時累積次數 (達 2 次將由 AI 接管)">
-                    ⏰ {rightPlayer.timeoutCount}/2
-                  </span>
-                )}
-                {isHost && !rightPlayer.isHost && !rightPlayer.isAi && onKickPlayer && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (window.confirm(`確定要將【${rightPlayer.name}】移出牌局並轉由 AI 接管嗎？`)) {
-                        onKickPlayer(rightPlayer.id);
-                      }
-                    }}
-                    title="踢除此玩家並轉由 AI 接管"
-                    className="p-1 rounded-full bg-red-600/80 hover:bg-red-500 text-white transition shadow ml-1 cursor-pointer"
-                  >
-                    <UserMinus className="w-3 h-3" />
-                  </button>
-                )}
-              </div>
-            </div>
+            <PlayerInfoPill
+              player={rightPlayer}
+              cardCount={displayedCounts[rightPlayer.id] !== undefined ? displayedCounts[rightPlayer.id] : rightPlayer.cardCount}
+              avatar="🎯"
+              isHost={isHost}
+              isActiveTurn={currentTurn === rightPlayer.id && !isDealing && !isContinuousDrawing}
+              isSkipped={skippedPlayerInfo && rightPlayer.id === skippedPlayerInfo.playerId}
+              isChoosingColor={isChoosingColor && colorChoosingPlayerIndex === rightPlayer.id}
+              isContinuousDrawing={isContinuousDrawing && drawingPlayerIndex === rightPlayer.id}
+              drawingStepCount={drawingStepCount}
+              showTimer={((currentTurn === rightPlayer.id && !isChoosingColor) || (isChoosingColor && colorChoosingPlayerIndex === rightPlayer.id)) && !isDealing && !isContinuousDrawing && gameState?.gameStatus !== 'game_over'}
+              turnStartTime={turnStartTime}
+              turnDuration={turnDuration || (isChoosingColor ? 6 : 15)}
+              timerPosition="left"
+              onKickPlayer={onKickPlayer}
+            />
 
-            {renderOpponentCards(displayedCounts[rightPlayer.id] !== undefined ? displayedCounts[rightPlayer.id] : rightPlayer.cardCount, 'right')}
+            <OpponentHand3D
+              side="right"
+              count={displayedCounts[rightPlayer.id] !== undefined ? displayedCounts[rightPlayer.id] : rightPlayer.cardCount}
+              deckTheme={deckTheme}
+            />
 
             {rightPlayer.unoVulnerable && (
               <button
@@ -1073,7 +752,7 @@ export function GameTableView({
           </div>
         )}
 
-        {/* 5. CENTER TABLE PILES */}
+        {/* CENTER TABLE PILES */}
         <div className="relative z-10 -mt-12 flex flex-col items-center justify-center gap-3 pointer-events-auto">
           {rabbidsEventBanner && (
             <div className="absolute -top-14 left-1/2 -translate-x-1/2 z-50 px-5 py-1.5 rounded-full bg-gradient-to-r from-pink-600 via-amber-500 to-purple-600 border-2 border-yellow-200 text-white font-black text-xs sm:text-sm shadow-[0_0_25px_rgba(236,72,153,0.9)] animate-bounce flex items-center gap-1.5 whitespace-nowrap">
@@ -1094,10 +773,8 @@ export function GameTableView({
             </div>
           )}
 
-          {/* Piles Row with subtle tabletop perspective tilt */}
           <div className="flex items-center justify-center gap-10 sm:gap-14">
-
-            {/* Draw Pile (Left) */}
+            {/* Draw Pile */}
             <div className="flex flex-col items-center gap-2.5">
               <div
                 style={{ transform: 'perspective(600px) rotateX(22deg) rotateZ(-4deg)' }}
@@ -1137,7 +814,7 @@ export function GameTableView({
               </div>
             </div>
 
-            {/* Discard Pile (Right) */}
+            {/* Discard Pile */}
             <div className="flex flex-col items-center gap-2.5">
               <div
                 ref={discardPileRef}
@@ -1153,7 +830,7 @@ export function GameTableView({
                       zIndex: idx
                     }}
                   >
-                    <CardView deckTheme={gameState?.deckTheme || 'classic'} card={discardedCard} className="shadow-md filter brightness-90" />
+                    <CardView deckTheme={deckTheme} card={discardedCard} className="shadow-md filter brightness-90" />
                   </div>
                 ))}
 
@@ -1167,7 +844,7 @@ export function GameTableView({
                       : 'rotate(-3deg)'
                   }}
                 >
-                  <CardView deckTheme={gameState?.deckTheme || 'classic'} card={topCard} isTopCard className="shadow-xl" />
+                  <CardView deckTheme={deckTheme} card={topCard} isTopCard className="shadow-xl" />
                 </div>
               </div>
 
@@ -1182,7 +859,6 @@ export function GameTableView({
                 <span>{activeColorInfo.name}</span>
               </div>
             </div>
-
           </div>
 
           {/* Status Indicators (Explosive Bomb & Hurry Up 3s Blitz) */}
@@ -1226,54 +902,27 @@ export function GameTableView({
           </div>
         </div>
 
-        {/* 6. BOTTOM SEAT: HUMAN PLAYER CONTROLS & STRAIGHT LEVEL HAND */}
+        {/* BOTTOM SEAT: HUMAN PLAYER CONTROLS & HAND */}
         <div className="absolute bottom-4 sm:bottom-6 left-0 right-0 z-30 flex flex-col items-center pointer-events-auto">
-
-          {/* Controls Bar */}
           <div className="w-full max-w-4xl flex items-center justify-between px-6 mb-1.5">
-            {/* Human Player Badge & Turn Timer Circle (Bottom-Left) */}
-            <div className="flex items-center gap-2">
-              <div
-                className={`flex items-center gap-2.5 px-3.5 py-1.5 rounded-full border shadow-xl backdrop-blur-md transition-all duration-200 ${
-                  skippedPlayerInfo && skippedPlayerInfo.playerId === myIndex
-                    ? 'skip-shake ring-4 ring-red-500 bg-red-950/90 border-red-400'
-                    : ((isMyTurn || (isChoosingColor && colorChoosingPlayerIndex === myIndex))) ? 'active-turn-ring scale-105' : 'bg-[#0a1c12]/95 border-white/20'
-                }`}
-              >
-                <div className="w-8 h-8 rounded-full bg-[#1e3a2b] border border-white/20 flex items-center justify-center text-sm">
-                  👤
-                </div>
-                <div className="flex flex-col">
-                  <span className="text-xs font-bold text-white">{myPlayer.name || '你 (玩家)'}</span>
-                  <span className="text-[10px] text-emerald-300 font-bold">{displayedHand.length} 張牌</span>
-                </div>
-                {skippedPlayerInfo && skippedPlayerInfo.playerId === myIndex && (
-                  <span className="px-2 py-0.5 rounded-full bg-red-600 text-white font-black text-[10px] shadow-2xl animate-bounce border border-yellow-300">
-                    你的回合被跳過！
-                  </span>
-                )}
-                {myPlayer.calledUno && (
-                  <span className="px-2 py-0.5 rounded-full bg-red-600 text-yellow-300 font-black text-[10px] shadow animate-pulse">
-                    UNO!
-                  </span>
-                )}
-                {isChoosingColor && colorChoosingPlayerIndex === myIndex && (
-                  <span className="px-2 py-0.5 rounded-full bg-purple-600 text-white font-black text-[10px] shadow-lg animate-pulse">
-                    選色階段 (6s)
-                  </span>
-                )}
-                {!isHost && myPlayer.timeoutCount > 0 && (
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-600/90 text-yellow-300 font-extrabold border border-yellow-300 shadow animate-pulse" title="注意！本局超時累計 2 次將被移出並由 AI 接管">
-                    ⚠️ 超時 {myPlayer.timeoutCount}/2
-                  </span>
-                )}
-              </div>
-              {((isMyTurn && !isChoosingColor) || (isChoosingColor && colorChoosingPlayerIndex === myIndex)) && !isDealing && !isContinuousDrawing && gameState?.gameStatus !== 'game_over' && (
-                <TurnTimerCircle turnStartTime={turnStartTime} duration={turnDuration || (isChoosingColor ? 6 : 15)} isLocal />
-              )}
-            </div>
+            <PlayerInfoPill
+              player={{ ...myPlayer, name: myPlayer.name || '你 (玩家)' }}
+              cardCount={displayedHand.length}
+              avatar="👤"
+              isLocal
+              isHost={isHost}
+              isActiveTurn={isMyTurn}
+              isSkipped={skippedPlayerInfo && skippedPlayerInfo.playerId === myIndex}
+              isChoosingColor={isChoosingColor && colorChoosingPlayerIndex === myIndex}
+              isContinuousDrawing={isContinuousDrawing && drawingPlayerIndex === myIndex}
+              drawingStepCount={drawingStepCount}
+              showTimer={((isMyTurn && !isChoosingColor) || (isChoosingColor && colorChoosingPlayerIndex === myIndex)) && !isDealing && !isContinuousDrawing && gameState?.gameStatus !== 'game_over'}
+              turnStartTime={turnStartTime}
+              turnDuration={turnDuration || (isChoosingColor ? 6 : 15)}
+              timerPosition="right"
+            />
 
-            {/* Action Buttons Group (Bottom-Right) */}
+            {/* Action Buttons Group */}
             <div className="flex items-center gap-2 sm:gap-2.5">
               <button
                 type="button"
@@ -1379,7 +1028,7 @@ export function GameTableView({
             </div>
           </div>
 
-          {/* Straight Level Hand Cards Resting Right on the Bottom Table Edge */}
+          {/* Straight Level Hand Cards */}
           <div
             ref={myHandRef}
             className="w-full max-w-4xl px-4 pt-1 pb-1 overflow-visible flex items-center justify-center min-h-[125px]"
@@ -1409,7 +1058,8 @@ export function GameTableView({
                       isMyTurn ? 'hover:z-40 hover:!-translate-y-5 cursor-pointer' : 'select-none'
                     }`}
                   >
-                    <CardView deckTheme={gameState?.deckTheme || 'classic'}
+                    <CardView
+                      deckTheme={deckTheme}
                       card={card}
                       isPlayable={isPlayable}
                       onClick={(e) => handleCardClick(card, e?.currentTarget)}
@@ -1420,60 +1070,16 @@ export function GameTableView({
               })}
             </div>
           </div>
-
         </div>
 
-        {/* Floating Wild Color Picker Modal */}
-        {isChoosingColor && colorChoosingPlayerIndex === myIndex && (
-          <div className="fixed z-50 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 p-5 rounded-3xl bg-[#0a1c12]/95 border-2 border-amber-400 shadow-2xl backdrop-blur-md flex flex-col items-center gap-3">
-            <div className="text-sm font-black text-white flex items-center justify-between w-full">
-              <span>請指定變色牌顏色 (限時 6 秒)</span>
-              <TurnTimerCircle turnStartTime={turnStartTime} duration={turnDuration || 6} isLocal />
-            </div>
-
-            <div className="text-[11px] text-amber-200/90 text-center px-2">
-              超時未選將自動以你手中最多顏色的牌出發！
-            </div>
-
-            <div className="grid grid-cols-2 gap-2.5 w-64">
-              <button
-                type="button"
-                onClick={() => handleConfirmWildColor('red')}
-                className="py-2.5 px-3 rounded-2xl bg-red-600 hover:bg-red-500 text-white font-black text-xs shadow-lg transition active:scale-95 flex flex-col items-center border border-red-300/40"
-              >
-                <span>紅色 RED</span>
-                <span className="text-[10px] opacity-80 mt-0.5">手中 {myColorCounts.red} 張</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleConfirmWildColor('yellow')}
-                className="py-2.5 px-3 rounded-2xl bg-yellow-500 hover:bg-yellow-400 text-black font-black text-xs shadow-lg transition active:scale-95 flex flex-col items-center border border-yellow-300/40"
-              >
-                <span>黃色 YELLOW</span>
-                <span className="text-[10px] opacity-80 mt-0.5">手中 {myColorCounts.yellow} 張</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleConfirmWildColor('green')}
-                className="py-2.5 px-3 rounded-2xl bg-green-600 hover:bg-green-500 text-white font-black text-xs shadow-lg transition active:scale-95 flex flex-col items-center border border-green-300/40"
-              >
-                <span>綠色 GREEN</span>
-                <span className="text-[10px] opacity-80 mt-0.5">手中 {myColorCounts.green} 張</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleConfirmWildColor('blue')}
-                className="py-2.5 px-3 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white font-black text-xs shadow-lg transition active:scale-95 flex flex-col items-center border border-blue-300/40"
-              >
-                <span>藍色 BLUE</span>
-                <span className="text-[10px] opacity-80 mt-0.5">手中 {myColorCounts.blue} 張</span>
-              </button>
-            </div>
-          </div>
-        )}
+        {/* Wild Color Picker Modal */}
+        <WildColorModal
+          isOpen={isChoosingColor && colorChoosingPlayerIndex === myIndex}
+          turnStartTime={turnStartTime}
+          turnDuration={turnDuration || 6}
+          myColorCounts={myColorCounts}
+          onSelectColor={handleConfirmWildColor}
+        />
       </main>
 
       {/* Game Log Drawer */}
