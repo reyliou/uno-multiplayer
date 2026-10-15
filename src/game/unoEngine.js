@@ -118,22 +118,33 @@ export class UnoEngine {
     this.initialCard = firstCard;
   }
 
+  // Steam UNO Rabbids: Remove temporary special card (Hurry Up, Explosive, Comin' Through, or Deflecting Shield)
+  // after its tabletop animation finishes, AND unconditionally advance the turn to the next player!
   vanishTopSpecialCard(cardId) {
-    const idx = this.discardPile.findIndex(c => c.id === cardId);
-    if (idx !== -1 && this.discardPile.length > 1) {
-      this.discardPile.splice(idx, 1);
+    if (cardId) {
+      const idx = this.discardPile.findIndex(c => c.id === cardId);
+      if (idx !== -1 && this.discardPile.length > 1) {
+        this.discardPile.splice(idx, 1);
+      }
+    } else if (this.vanishingCardId) {
+      const idx = this.discardPile.findIndex(c => c.id === this.vanishingCardId);
+      if (idx !== -1 && this.discardPile.length > 1) {
+        this.discardPile.splice(idx, 1);
+      }
     }
-    if (this.vanishingCardId === cardId) {
-      this.vanishingCardId = null;
-    }
-    if (this.pendingAdvanceStep !== null && this.pendingAdvanceStep !== undefined) {
-      const step = this.pendingAdvanceStep;
-      this.pendingAdvanceStep = null;
-      this.hasDrawnThisTurn = false;
-      this.currentTurn = this.getNextTurnIndex(step);
-      this.turnStartTime = Date.now();
-      this.turnDuration = this.consumeTurnDuration();
-    }
+
+    this.vanishingCardId = null;
+    this.isContinuousDrawing = false;
+
+    // 強制推進回合至下一位玩家（預設 step = 1），絕不留在原出牌者身上！
+    const step = (this.pendingAdvanceStep !== null && this.pendingAdvanceStep !== undefined)
+      ? this.pendingAdvanceStep
+      : 1;
+    this.pendingAdvanceStep = null;
+    this.hasDrawnThisTurn = false;
+    this.currentTurn = this.getNextTurnIndex(step);
+    this.turnStartTime = Date.now();
+    this.turnDuration = this.consumeTurnDuration();
   }
 
   // Steam UNO Rabbids Official Rule for Comin' Through!:
