@@ -4,6 +4,7 @@ class SoundManager {
     this.ctx = null;
     this.muted = false;
     this.hurryUpAudio = null;
+    this.isHurryUpMyTurn = false;
   }
 
   init() {
@@ -21,7 +22,7 @@ class SoundManager {
   toggleMute() {
     this.muted = !this.muted;
     if (this.hurryUpAudio) {
-      this.hurryUpAudio.volume = this.muted ? 0 : 0.45;
+      this.hurryUpAudio.volume = this.muted ? 0 : (this.isHurryUpMyTurn ? 0.75 : 0.18);
     }
     return this.muted;
   }
@@ -382,21 +383,59 @@ class SoundManager {
     }
   }
 
-  // Rabbids Hurry Up: Toothless Dancing Meme BGM
-  playHurryUpBgm() {
+  // Rabbids Hurry Up: Toothless Dancing Meme BGM with Dynamic Proximity Volume
+  playHurryUpBgm(isMyTurn = false) {
+    this.isHurryUpMyTurn = isMyTurn;
+    const targetVolume = this.muted ? 0 : (isMyTurn ? 0.75 : 0.18);
+
     if (this.hurryUpAudio) {
+      this.hurryUpAudio.volume = targetVolume;
       if (this.hurryUpAudio.paused && !this.muted) {
-        this.hurryUpAudio.play().catch(() => {});
+        this.hurryUpAudio.play().catch(() => {
+          const retryOnInteraction = () => {
+            if (this.hurryUpAudio && this.hurryUpAudio.paused && !this.muted) {
+              this.hurryUpAudio.play().catch(() => {});
+            }
+            window.removeEventListener('click', retryOnInteraction);
+            window.removeEventListener('keydown', retryOnInteraction);
+          };
+          window.addEventListener('click', retryOnInteraction, { once: true });
+          window.addEventListener('keydown', retryOnInteraction, { once: true });
+        });
       }
       return;
     }
+
     try {
-      this.hurryUpAudio = new Audio('/cards_rabbids/effects/hurry_up/toothless-dancing.mp3');
-      this.hurryUpAudio.loop = true;
-      this.hurryUpAudio.volume = this.muted ? 0 : 0.45;
-      this.hurryUpAudio.play().catch(() => {});
+      const audio = new Audio('/cards_rabbids/effects/hurry_up/toothless-dancing.mp3');
+      audio.loop = true;
+      audio.volume = targetVolume;
+      audio.onerror = () => {
+        audio.src = '/cards_rabbids/effects/hurry_up/' + encodeURIComponent('Toothless Dancing Meme [NEW VARIATIONS] - Cas van de Pol.mp3');
+        audio.play().catch(() => {});
+      };
+
+      this.hurryUpAudio = audio;
+      audio.play().catch(() => {
+        const retryOnInteraction = () => {
+          if (this.hurryUpAudio && this.hurryUpAudio.paused && !this.muted) {
+            this.hurryUpAudio.play().catch(() => {});
+          }
+          window.removeEventListener('click', retryOnInteraction);
+          window.removeEventListener('keydown', retryOnInteraction);
+        };
+        window.addEventListener('click', retryOnInteraction, { once: true });
+        window.addEventListener('keydown', retryOnInteraction, { once: true });
+      });
     } catch {
       // Audio error handling
+    }
+  }
+
+  setHurryUpTurn(isMyTurn = false) {
+    this.isHurryUpMyTurn = isMyTurn;
+    if (this.hurryUpAudio) {
+      this.hurryUpAudio.volume = this.muted ? 0 : (isMyTurn ? 0.75 : 0.18);
     }
   }
 
