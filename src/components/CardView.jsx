@@ -15,7 +15,9 @@ export function CardView({
   const [imgError, setImgError] = useState(false);
 
   let assetKey = 'card_back';
-  if (!isBack && card) {
+  const isExplicitBack = isBack || card?.value === 'card_back' || card?.assetKey === 'card_back';
+
+  if (!isExplicitBack && card) {
     if (card.color === 'wild') {
       // In hand, Wild cards MUST ALWAYS be pristine uncolored (wild, wild_draw4 or rabbids special)!
       // ONLY the active topCard on the table's discard pile shows the chosen color variant.

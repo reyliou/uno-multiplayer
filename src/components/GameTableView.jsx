@@ -251,6 +251,34 @@ export function GameTableView({
     );
   };
 
+  // 判斷是否要在某個對手的座位原地顯示質疑勾勾/叉叉（當我既不是質疑者、也不是被質疑者時，或我是觀戰者時）
+  const isThirdPartyWatchingChallenge =
+    !!wild4ChallengeAnim &&
+    (isSpectator || (wild4ChallengeAnim.challengerId !== myIndex && wild4ChallengeAnim.challengedId !== myIndex));
+
+  const getInPlaceChallengeHandClass = (playerId) => {
+    if (!isThirdPartyWatchingChallenge || wild4ChallengeAnim.challengedId !== playerId) return '';
+    return wild4ChallengeAnim.isSuccess ? 'challenge-card-lift' : 'challenge-hand-shake';
+  };
+
+  const renderInPlaceChallengeBadge = (playerId, posClass = '-top-12 left-1/2 -translate-x-1/2') => {
+    if (!isThirdPartyWatchingChallenge || wild4ChallengeAnim.challengedId !== playerId) return null;
+    const isSuccess = wild4ChallengeAnim.isSuccess;
+    return (
+      <div className={`absolute ${posClass} z-50 pointer-events-none challenge-verdict-pop`}>
+        {isSuccess ? (
+          <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-green-600 border-3 border-green-200 shadow-[0_0_30px_rgba(34,197,94,0.95)] flex items-center justify-center">
+            <Check className="w-7 h-7 sm:w-8 sm:h-8 text-white stroke-[4]" />
+          </div>
+        ) : (
+          <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-red-600 border-3 border-red-200 shadow-[0_0_30px_rgba(239,68,68,0.95)] flex items-center justify-center">
+            <X className="w-7 h-7 sm:w-8 sm:h-8 text-white stroke-[4]" />
+          </div>
+        )}
+      </div>
+    );
+  };
+
   // Opening Deal Animation
   const hasAnimatedDealRef = useRef(false);
   const dealTimerRef = useRef(null);
@@ -723,7 +751,8 @@ export function GameTableView({
               onKickPlayer={onKickPlayer}
             />
 
-            <div className="flex items-center justify-center mt-0.5">
+            <div className={`relative flex items-center justify-center mt-0.5 ${getInPlaceChallengeHandClass(topPlayer.id)}`}>
+              {renderInPlaceChallengeBadge(topPlayer.id, '-bottom-12 left-1/2 -translate-x-1/2')}
               <OpponentHand3D
                 side="top"
                 count={displayedCounts[topPlayer.id] !== undefined ? displayedCounts[topPlayer.id] : topPlayer.cardCount}
@@ -770,11 +799,14 @@ export function GameTableView({
               onKickPlayer={onKickPlayer}
             />
 
-            <OpponentHand3D
-              side="left"
-              count={displayedCounts[leftPlayer.id] !== undefined ? displayedCounts[leftPlayer.id] : leftPlayer.cardCount}
-              deckTheme={deckTheme}
-            />
+            <div className={`relative flex items-center justify-center ${getInPlaceChallengeHandClass(leftPlayer.id)}`}>
+              {renderInPlaceChallengeBadge(leftPlayer.id, '-top-10 left-1/2 -translate-x-1/2')}
+              <OpponentHand3D
+                side="left"
+                count={displayedCounts[leftPlayer.id] !== undefined ? displayedCounts[leftPlayer.id] : leftPlayer.cardCount}
+                deckTheme={deckTheme}
+              />
+            </div>
 
             {leftPlayer.unoVulnerable && (
               <button
@@ -813,11 +845,14 @@ export function GameTableView({
               onKickPlayer={onKickPlayer}
             />
 
-            <OpponentHand3D
-              side="right"
-              count={displayedCounts[rightPlayer.id] !== undefined ? displayedCounts[rightPlayer.id] : rightPlayer.cardCount}
-              deckTheme={deckTheme}
-            />
+            <div className={`relative flex items-center justify-center ${getInPlaceChallengeHandClass(rightPlayer.id)}`}>
+              {renderInPlaceChallengeBadge(rightPlayer.id, '-top-10 left-1/2 -translate-x-1/2')}
+              <OpponentHand3D
+                side="right"
+                count={displayedCounts[rightPlayer.id] !== undefined ? displayedCounts[rightPlayer.id] : rightPlayer.cardCount}
+                deckTheme={deckTheme}
+              />
+            </div>
 
             {rightPlayer.unoVulnerable && (
               <button
@@ -1150,7 +1185,8 @@ export function GameTableView({
                 {renderHandPlusBadge && renderHandPlusBadge(isSpectator ? myPlayer.id : myIndex, '-top-12 left-1/2 -translate-x-1/2')}
 
                 {isSpectator ? (
-                  <div className="flex flex-col items-center gap-2">
+                  <div className={`relative flex flex-col items-center gap-2 ${getInPlaceChallengeHandClass(myPlayer.id)}`}>
+                    {renderInPlaceChallengeBadge(myPlayer.id, '-top-14 left-1/2 -translate-x-1/2')}
                     <OpponentHand3D
                       side="top"
                       count={displayedCounts[myPlayer.id] !== undefined ? displayedCounts[myPlayer.id] : (myPlayer.cardCount || 1)}
@@ -1236,6 +1272,7 @@ export function GameTableView({
         <Wild4ChallengeOverlay
           wild4ChallengeAnim={wild4ChallengeAnim}
           myIndex={myIndex}
+          isSpectator={isSpectator}
           seatDirection={challengeSeatDirection}
           deckTheme={deckTheme}
         />
