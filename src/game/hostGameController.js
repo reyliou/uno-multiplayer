@@ -179,6 +179,9 @@ export class HostGameController {
     if (!this.engine || this.engine.isDealing) {
       return { success: false, reason: '開局發牌中，尚未能抽牌' };
     }
+    if (this.engine.isChoosingColor) {
+      return { success: false, reason: '正在選擇顏色中，無法抽牌' };
+    }
     if (this.isContinuousDrawing) {
       return { success: false, reason: '正在抽牌或結算動畫中' };
     }
@@ -330,7 +333,7 @@ export class HostGameController {
   // ==========================================================
   executeContinuousDraw(playerIndex, onComplete) {
     if (!this.engine || this.engine.currentTurn !== playerIndex) return;
-    if (this.isContinuousDrawing || this.engine.hasDrawnThisTurn) return;
+    if (this.isContinuousDrawing || this.engine.hasDrawnThisTurn || this.engine.isChoosingColor) return;
 
     this.isContinuousDrawing = true;
     this.engine.isContinuousDrawing = true;
@@ -362,6 +365,8 @@ export class HostGameController {
     const drawStep = () => {
       if (!this.engine || this.engine.currentTurn !== playerIndex || this.engine.gameStatus === 'game_over') {
         this.finishDrawingCleanup();
+        this.onBroadcastState();
+        this.checkAiTurn();
         if (onComplete) onComplete({ success: false });
         return;
       }
@@ -369,6 +374,8 @@ export class HostGameController {
       const res = this.engine.drawSingleCardStep(playerIndex);
       if (!res.success) {
         this.finishDrawingCleanup();
+        this.onBroadcastState();
+        this.checkAiTurn();
         if (onComplete) onComplete(res);
         return;
       }
@@ -405,7 +412,7 @@ export class HostGameController {
   }
 
   executePenaltyDraw(playerIndex, onComplete) {
-    if (!this.engine || this.isContinuousDrawing) return;
+    if (!this.engine || this.isContinuousDrawing || this.engine.isChoosingColor) return;
 
     if (this.engine.explosiveActive) {
       this.engine.explosiveActive = false;
@@ -433,6 +440,7 @@ export class HostGameController {
     const step = () => {
       if (!this.engine || this.engine.gameStatus === 'game_over') {
         this.finishDrawingCleanup();
+        this.onBroadcastState();
         if (onComplete) onComplete({ success: false });
         return;
       }
@@ -440,6 +448,8 @@ export class HostGameController {
       const res = this.engine.drawSingleCardStep(playerIndex);
       if (!res.success) {
         this.finishDrawingCleanup();
+        this.onBroadcastState();
+        this.checkAiTurn();
         if (onComplete) onComplete(res);
         return;
       }

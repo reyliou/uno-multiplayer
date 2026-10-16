@@ -130,7 +130,8 @@ export function GameTableView({
   } = gameState || {};
 
   const is2v2 = gameMode === '2v2';
-  const isForcedPenalty = !isSpectator && stackedDrawCount > 0 && validCards.length === 0 && !canChallengeWildDraw4;
+  // 關鍵修正：加上 !isChoosingColor，避免玩家打出 +4 正在選色時被誤判為無牌可疊！
+  const isForcedPenalty = !isSpectator && !isChoosingColor && stackedDrawCount > 0 && validCards.length === 0 && !canChallengeWildDraw4;
   const isMyTurn = !isSpectator && currentTurn === myIndex && !isContinuousDrawing && !isDealing && !isForcedPenalty;
 
   const [displayedHand, setDisplayedHand] = useState(myHand);
@@ -192,7 +193,7 @@ export function GameTableView({
   const autoPenaltyTimerRef = useRef(null);
 
   useEffect(() => {
-    if (currentTurn === myIndex && !isDealing && !isContinuousDrawing && isForcedPenalty) {
+    if (currentTurn === myIndex && !isDealing && !isContinuousDrawing && !isChoosingColor && isForcedPenalty) {
       showToast(`💥 無對應牌可疊！自動承受累積罰抽【+${stackedDrawCount} 張】...`);
       autoPenaltyTimerRef.current = setTimeout(() => {
         onDrawCard();
@@ -204,7 +205,7 @@ export function GameTableView({
         }
       };
     }
-  }, [currentTurn, myIndex, isDealing, isContinuousDrawing, isForcedPenalty, stackedDrawCount]);
+  }, [currentTurn, myIndex, isDealing, isContinuousDrawing, isChoosingColor, isForcedPenalty, stackedDrawCount]);
 
   // Calculate Seats (Top, Left, Right)
   const totalP = players.length;
