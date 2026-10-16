@@ -300,7 +300,7 @@ export function GameTableView({
   const renderToothlessDancer = (playerId, positionClass = '-top-16 sm:-top-20 left-1/2 -translate-x-1/2', sizeClass = 'w-24 sm:w-32 md:w-36', showBadge = false) => {
     if (hurryUpTurns <= 0 || currentTurn !== playerId || isDealing) return null;
     return (
-      <div className={`absolute ${positionClass} z-40 pointer-events-none flex flex-col items-center select-none animate-bounce`}>
+      <div className={`absolute ${positionClass} z-40 pointer-events-none flex flex-col items-center select-none`}>
         <img
           src="/cards_rabbids/effects/hurry_up/toothless-dancing-toothless.gif"
           alt="Toothless Dancing"
