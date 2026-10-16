@@ -29,7 +29,11 @@ export function getDeckAssetUrls(theme = 'classic') {
     }
   }
 
-  return Array.from(keys).map((k) => `/${folder}/${k}.png`);
+  const resultUrls = Array.from(keys).map((k) => `/${folder}/${k}.png`);
+  if (theme === 'rabbids') {
+    resultUrls.push('/cards_rabbids/effects/hurry_up/toothless-dancing-toothless.gif');
+  }
+  return resultUrls;
 }
 
 export function isDeckThemeLoaded(theme = 'classic') {

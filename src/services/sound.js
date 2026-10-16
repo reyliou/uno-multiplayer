@@ -3,6 +3,7 @@ class SoundManager {
   constructor() {
     this.ctx = null;
     this.muted = false;
+    this.hurryUpAudio = null;
   }
 
   init() {
@@ -19,6 +20,9 @@ class SoundManager {
 
   toggleMute() {
     this.muted = !this.muted;
+    if (this.hurryUpAudio) {
+      this.hurryUpAudio.volume = this.muted ? 0 : 0.45;
+    }
     return this.muted;
   }
 
@@ -375,6 +379,34 @@ class SoundManager {
       osc.stop(t + 0.04);
     } catch {
       // AudioContext error handling
+    }
+  }
+
+  // Rabbids Hurry Up: Toothless Dancing Meme BGM
+  playHurryUpBgm() {
+    if (this.hurryUpAudio) {
+      if (this.hurryUpAudio.paused && !this.muted) {
+        this.hurryUpAudio.play().catch(() => {});
+      }
+      return;
+    }
+    try {
+      this.hurryUpAudio = new Audio('/cards_rabbids/effects/hurry_up/toothless-dancing.mp3');
+      this.hurryUpAudio.loop = true;
+      this.hurryUpAudio.volume = this.muted ? 0 : 0.45;
+      this.hurryUpAudio.play().catch(() => {});
+    } catch {
+      // Audio error handling
+    }
+  }
+
+  stopHurryUpBgm() {
+    if (this.hurryUpAudio) {
+      try {
+        this.hurryUpAudio.pause();
+        this.hurryUpAudio.currentTime = 0;
+      } catch {}
+      this.hurryUpAudio = null;
     }
   }
 }

@@ -171,6 +171,18 @@ export function GameTableView({
     cardAnimationService.setDeckTheme(deckTheme);
   }, [deckTheme]);
 
+  // Rabbids Hurry Up: Toothless Dancing Meme BGM management
+  useEffect(() => {
+    if (hurryUpTurns > 0 && gameState?.gameStatus === 'playing') {
+      soundManager.playHurryUpBgm();
+    } else {
+      soundManager.stopHurryUpBgm();
+    }
+    return () => {
+      soundManager.stopHurryUpBgm();
+    };
+  }, [hurryUpTurns, gameState?.gameStatus]);
+
   const [localHasDrawn, setLocalHasDrawn] = useState(false);
   const hasDrawnThisTurn = isMyTurn && (localHasDrawn || remoteHasDrawn);
 
@@ -278,6 +290,25 @@ export function GameTableView({
         ) : (
           <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-red-600 border-3 border-red-200 shadow-[0_0_30px_rgba(239,68,68,0.95)] flex items-center justify-center">
             <X className="w-7 h-7 sm:w-8 sm:h-8 text-white stroke-[4]" />
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // 瘋狂快抽 Hurry Up: 在當前回合出牌者（玩家或 AI）的手牌前跳舞催促
+  const renderToothlessDancer = (playerId, positionClass = '-top-16 sm:-top-20 left-1/2 -translate-x-1/2', sizeClass = 'w-24 sm:w-32 md:w-36', showBadge = false) => {
+    if (hurryUpTurns <= 0 || currentTurn !== playerId || isDealing) return null;
+    return (
+      <div className={`absolute ${positionClass} z-40 pointer-events-none flex flex-col items-center select-none animate-bounce`}>
+        <img
+          src="/cards_rabbids/effects/hurry_up/toothless-dancing-toothless.gif"
+          alt="Toothless Dancing"
+          className={`${sizeClass} h-auto drop-shadow-[0_0_16px_rgba(245,158,11,0.95)] filter brightness-105`}
+        />
+        {showBadge && (
+          <div className="px-2.5 py-0.5 rounded-full bg-gradient-to-r from-amber-500 to-yellow-400 text-black font-black text-[10px] sm:text-xs tracking-wider shadow-lg -mt-1.5 border border-yellow-100 flex items-center gap-1 whitespace-nowrap">
+            <span>⚡ 快出牌！沒牙跳舞催促中</span>
           </div>
         )}
       </div>
@@ -772,6 +803,7 @@ export function GameTableView({
 
             <div className={`relative flex items-center justify-center mt-0.5 ${getInPlaceChallengeHandClass(topPlayer.id)}`}>
               {renderInPlaceChallengeBadge(topPlayer.id, '-bottom-12 left-1/2 -translate-x-1/2')}
+              {renderToothlessDancer(topPlayer.id, '-bottom-14 sm:-bottom-16 left-1/2 -translate-x-1/2', 'w-18 sm:w-22 md:w-26', false)}
               <OpponentHand3D
                 side="top"
                 count={displayedCounts[topPlayer.id] !== undefined ? displayedCounts[topPlayer.id] : topPlayer.cardCount}
@@ -820,6 +852,7 @@ export function GameTableView({
 
             <div className={`relative flex items-center justify-center ${getInPlaceChallengeHandClass(leftPlayer.id)}`}>
               {renderInPlaceChallengeBadge(leftPlayer.id, '-top-10 left-1/2 -translate-x-1/2')}
+              {renderToothlessDancer(leftPlayer.id, '-right-8 sm:-right-12 top-1/2 -translate-y-1/2', 'w-18 sm:w-22 md:w-26', false)}
               <OpponentHand3D
                 side="left"
                 count={displayedCounts[leftPlayer.id] !== undefined ? displayedCounts[leftPlayer.id] : leftPlayer.cardCount}
@@ -866,6 +899,7 @@ export function GameTableView({
 
             <div className={`relative flex items-center justify-center ${getInPlaceChallengeHandClass(rightPlayer.id)}`}>
               {renderInPlaceChallengeBadge(rightPlayer.id, '-top-10 left-1/2 -translate-x-1/2')}
+              {renderToothlessDancer(rightPlayer.id, '-left-8 sm:-left-12 top-1/2 -translate-y-1/2', 'w-18 sm:w-22 md:w-26', false)}
               <OpponentHand3D
                 side="right"
                 count={displayedCounts[rightPlayer.id] !== undefined ? displayedCounts[rightPlayer.id] : rightPlayer.cardCount}
@@ -1202,6 +1236,7 @@ export function GameTableView({
                 }`}
               >
                 {renderHandPlusBadge && renderHandPlusBadge(isSpectator ? myPlayer.id : myIndex, '-top-12 left-1/2 -translate-x-1/2')}
+                {renderToothlessDancer(isSpectator ? myPlayer.id : myIndex, '-top-18 sm:-top-22 left-1/2 -translate-x-1/2', 'w-28 sm:w-36 md:w-40', true)}
 
                 {isSpectator ? (
                   <div className={`relative flex flex-col items-center gap-2 ${getInPlaceChallengeHandClass(myPlayer.id)}`}>
