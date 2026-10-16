@@ -171,9 +171,11 @@ export function GameTableView({
     cardAnimationService.setDeckTheme(deckTheme);
   }, [deckTheme]);
 
-  // Rabbids Hurry Up: Toothless Dancing Meme BGM management (Louder on my turn, softer on opponents)
+  // Rabbids Hurry Up: Toothless Dancing Meme BGM management (Continuous playback, only adjust volume)
+  const isHurryUpActive = hurryUpTurns > 0 && gameState?.gameStatus === 'playing';
+
   useEffect(() => {
-    if (hurryUpTurns > 0 && gameState?.gameStatus === 'playing') {
+    if (isHurryUpActive) {
       const isMyTurnNow = !isSpectator && currentTurn === myIndex;
       soundManager.playHurryUpBgm(isMyTurnNow);
     } else {
@@ -182,7 +184,14 @@ export function GameTableView({
     return () => {
       soundManager.stopHurryUpBgm();
     };
-  }, [hurryUpTurns, currentTurn, myIndex, isSpectator, gameState?.gameStatus]);
+  }, [isHurryUpActive]);
+
+  useEffect(() => {
+    if (isHurryUpActive) {
+      const isMyTurnNow = !isSpectator && currentTurn === myIndex;
+      soundManager.setHurryUpTurn(isMyTurnNow);
+    }
+  }, [isHurryUpActive, currentTurn, myIndex, isSpectator]);
 
   const [localHasDrawn, setLocalHasDrawn] = useState(false);
   const hasDrawnThisTurn = isMyTurn && (localHasDrawn || remoteHasDrawn);
