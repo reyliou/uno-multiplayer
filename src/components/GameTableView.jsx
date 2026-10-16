@@ -136,6 +136,10 @@ export function GameTableView({
 
   const [displayedHand, setDisplayedHand] = useState(myHand);
   const [displayedCounts, setDisplayedCounts] = useState({});
+  // 視覺緩衝棄牌堆：當對手/AI 出牌正在空中飛行 (380ms) 時，棄牌堆先維持舊頂牌，落地瞬間才更新為新頂牌！
+  const [displayedTopCard, setDisplayedTopCard] = useState(topCard);
+  const [displayedDiscardPile, setDisplayedDiscardPile] = useState(recentDiscardPile);
+  const isRemotePlayFlyingRef = useRef(false);
   const initialSyncRef = useRef(false);
   const inflightCardIdsRef = useRef(new Set());
   const inflightOpponentCountsRef = useRef({});
@@ -358,6 +362,8 @@ export function GameTableView({
     if (!gameState) return;
 
     const lastAction = gameState.lastAction;
+    let triggeredRemotePlayAnim = false;
+
     if (lastAction && lastAction.timestamp && lastAction.timestamp !== prevActionTimeRef.current) {
       prevActionTimeRef.current = lastAction.timestamp;
 
@@ -365,8 +371,14 @@ export function GameTableView({
         if (lastAction.playerId !== myIndex) {
           const fromEl = getPlayerRef(lastAction.playerId);
           if (fromEl && discardPileRef.current) {
+            triggeredRemotePlayAnim = true;
+            isRemotePlayFlyingRef.current = true;
             const cardKey = lastAction.card.displayAssetKey || lastAction.card.assetKey;
-            cardAnimationService.animatePlayCard(fromEl, discardPileRef.current, cardKey);
+            cardAnimationService.animatePlayCard(fromEl, discardPileRef.current, cardKey, () => {
+              isRemotePlayFlyingRef.current = false;
+              setDisplayedTopCard(topCard);
+              setDisplayedDiscardPile(recentDiscardPile);
+            });
           }
         }
 
@@ -406,6 +418,12 @@ export function GameTableView({
           showToast('💨 抽牌完畢，回合結束！');
         }
       }
+    }
+
+    // 若非對手出牌飛行中（例如自己出牌已飛完、選色變色、或特殊牌淡出消失），立即同步棄牌堆頂牌
+    if (!triggeredRemotePlayAnim && !isRemotePlayFlyingRef.current) {
+      setDisplayedTopCard(topCard);
+      setDisplayedDiscardPile(recentDiscardPile);
     }
     prevTopCardRef.current = topCard;
 
@@ -937,7 +955,7 @@ export function GameTableView({
                 style={{ transform: 'perspective(600px) rotateX(22deg)' }}
                 className="relative w-20 h-30 sm:w-24 sm:h-36 flex items-center justify-center"
               >
-                {recentDiscardPile && recentDiscardPile.length > 1 && recentDiscardPile.slice(0, -1).map((discardedCard, idx) => (
+                {displayedDiscardPile && displayedDiscardPile.length > 1 && displayedDiscardPile.slice(0, -1).map((discardedCard, idx) => (
                   <div
                     key={discardedCard.id || idx}
                     className="absolute inset-0 pointer-events-none transition-all duration-300 flex items-center justify-center"
@@ -952,15 +970,15 @@ export function GameTableView({
 
                 <div
                   className={`relative z-10 transition-transform duration-200 ${
-                    topCard && vanishingCardId === topCard.id ? 'rabbids-vanish-card' : ''
+                    displayedTopCard && vanishingCardId === displayedTopCard.id ? 'rabbids-vanish-card' : ''
                   }`}
                   style={{
-                    transform: recentDiscardPile?.length
-                      ? `translate(${recentDiscardPile[recentDiscardPile.length - 1].offsetX || 0}px, ${recentDiscardPile[recentDiscardPile.length - 1].offsetY || 0}px) rotate(${recentDiscardPile[recentDiscardPile.length - 1].rot || -3}deg)`
+                    transform: displayedDiscardPile?.length
+                      ? `translate(${displayedDiscardPile[displayedDiscardPile.length - 1].offsetX || 0}px, ${displayedDiscardPile[displayedDiscardPile.length - 1].offsetY || 0}px) rotate(${displayedDiscardPile[displayedDiscardPile.length - 1].rot || -3}deg)`
                       : 'rotate(-3deg)'
                   }}
                 >
-                  <CardView deckTheme={deckTheme} card={topCard} isTopCard className="shadow-xl" />
+                  <CardView deckTheme={deckTheme} card={displayedTopCard || topCard} isTopCard className="shadow-xl" />
                 </div>
               </div>
 

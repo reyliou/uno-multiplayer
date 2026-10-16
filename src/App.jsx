@@ -5,7 +5,8 @@ import { LobbyView } from './components/LobbyView';
 import { GameTableView } from './components/GameTableView';
 import { VictoryModal } from './components/VictoryModal';
 import { p2pNetwork } from './services/p2p';
-import { AlertCircle, X } from 'lucide-react';
+import { preloadDeckAssets, isDeckThemeLoaded } from './services/assetPreloader';
+import { AlertCircle, X, RotateCw } from 'lucide-react';
 
 export default function App() {
   const [view, setView] = useState('home'); // 'home' | 'lobby' | 'game'
@@ -23,6 +24,15 @@ export default function App() {
   const [gameState, setGameState] = useState(null);
   const [errorMessage, setErrorMessage] = useState('');
 
+  // Asset Preloading State before entering match
+  const [isPreloadingAssets, setIsPreloadingAssets] = useState(false);
+  const [preloadProgress, setPreloadProgress] = useState(0);
+
+  // Background warm-up preloading when app mounts or theme changes
+  useEffect(() => {
+    preloadDeckAssets(deckTheme);
+  }, [deckTheme]);
+
   useEffect(() => {
     p2pNetwork.onLobbyUpdate = (data) => {
       setLobbyPlayers([...(data.players || [])]);
@@ -39,10 +49,24 @@ export default function App() {
     };
 
     p2pNetwork.onStateUpdate = (state) => {
-      setGameState({ ...state });
-      if (state.spectators) setSpectators([...state.spectators]);
-      if (state.isSpectator !== undefined) setIsSpectator(!!state.isSpectator);
-      setView((prev) => (prev !== 'game' ? 'game' : prev));
+      const theme = state.deckTheme || 'classic';
+      if (!isDeckThemeLoaded(theme)) {
+        setIsPreloadingAssets(true);
+        preloadDeckAssets(theme, ({ percent }) => {
+          setPreloadProgress(percent);
+        }).then(() => {
+          setIsPreloadingAssets(false);
+          setGameState({ ...state });
+          if (state.spectators) setSpectators([...state.spectators]);
+          if (state.isSpectator !== undefined) setIsSpectator(!!state.isSpectator);
+          setView((prev) => (prev !== 'game' ? 'game' : prev));
+        });
+      } else {
+        setGameState({ ...state });
+        if (state.spectators) setSpectators([...state.spectators]);
+        if (state.isSpectator !== undefined) setIsSpectator(!!state.isSpectator);
+        setView((prev) => (prev !== 'game' ? 'game' : prev));
+      }
     };
 
     p2pNetwork.onReturnToLobby = (data) => {
@@ -106,7 +130,16 @@ export default function App() {
     setView('lobby');
   };
 
-  const handleStartGame = () => {
+  // Host starts game: Ensure all card images for the chosen theme are 100% preloaded before dealing!
+  const handleStartGame = async () => {
+    if (!isDeckThemeLoaded(deckTheme)) {
+      setIsPreloadingAssets(true);
+      setPreloadProgress(0);
+      await preloadDeckAssets(deckTheme, ({ percent }) => {
+        setPreloadProgress(percent);
+      });
+      setIsPreloadingAssets(false);
+    }
     p2pNetwork.startGame();
   };
 
@@ -278,6 +311,27 @@ export default function App() {
           >
             <X className="w-3.5 h-3.5" />
           </button>
+        </div>
+      )}
+
+      {/* Full-Deck Asset Preloader Modal before entering match */}
+      {isPreloadingAssets && (
+        <div className="fixed inset-0 z-[100] bg-black/85 backdrop-blur-md flex flex-col items-center justify-center p-6 select-none">
+          <div className="w-full max-w-sm rounded-3xl bg-[#0b2315] border-2 border-amber-400/60 p-6 shadow-2xl flex flex-col items-center text-center gap-3">
+            <RotateCw className="w-9 h-9 text-amber-400 animate-spin" />
+            <div className="text-base font-black text-white">
+              正在載入牌桌卡面素材 ({preloadProgress}%)...
+            </div>
+            <div className="text-xs text-emerald-300/80">
+              正在將全套高清卡牌寫入快取，確保對局流暢不破圖
+            </div>
+            <div className="w-full h-3 rounded-full bg-black/60 border border-emerald-500/30 overflow-hidden mt-1">
+              <div
+                className="h-full bg-gradient-to-r from-amber-500 to-yellow-300 transition-all duration-150"
+                style={{ width: `${preloadProgress}%` }}
+              />
+            </div>
+          </div>
         </div>
       )}
 

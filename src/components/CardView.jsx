@@ -1,5 +1,6 @@
-// CardView.jsx - 3D Modern UNO & Rabbids DLC Card Renderer
-import React, { useState } from 'react';
+// 檔案位置：src/components/CardView.jsx
+// 3D Modern UNO & Rabbids DLC Card Renderer with Auto-Reset & Retry on Slow Networks
+import React, { useState, useEffect } from 'react';
 
 export function CardView({
   card,
@@ -13,14 +14,13 @@ export function CardView({
   className = ''
 }) {
   const [imgError, setImgError] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
 
   let assetKey = 'card_back';
   const isExplicitBack = isBack || card?.value === 'card_back' || card?.assetKey === 'card_back';
 
   if (!isExplicitBack && card) {
     if (card.color === 'wild') {
-      // In hand, Wild cards MUST ALWAYS be pristine uncolored (wild, wild_draw4 or rabbids special)!
-      // ONLY the active topCard on the table's discard pile shows the chosen color variant.
       if (isTopCard && card.chosenColor) {
         if (card.value === 'wild_draw4') {
           assetKey = `wild_draw4_${card.chosenColor}`;
@@ -46,7 +46,24 @@ export function CardView({
   }
 
   const effectiveTheme = (deckTheme === 'rabbids' || card?.deckTheme === 'rabbids') ? 'cards_rabbids' : 'cards_modern';
-  const imgSrc = `/${effectiveTheme}/${assetKey}.png`;
+  const baseImgSrc = `/${effectiveTheme}/${assetKey}.png`;
+  const imgSrc = retryCount > 0 ? `${baseImgSrc}?retry=${retryCount}` : baseImgSrc;
+
+  // Reset error state whenever the card image URL changes
+  useEffect(() => {
+    setImgError(false);
+    setRetryCount(0);
+  }, [baseImgSrc]);
+
+  const handleImageError = () => {
+    if (retryCount < 2) {
+      setTimeout(() => {
+        setRetryCount((prev) => prev + 1);
+      }, 300);
+    } else {
+      setImgError(true);
+    }
+  };
 
   const sizeClasses = isSmall
     ? 'w-10 h-14 sm:w-12 sm:h-16 rounded-md'
@@ -66,12 +83,12 @@ export function CardView({
         <img
           src={imgSrc}
           alt={assetKey}
-          onError={() => setImgError(true)}
+          onError={handleImageError}
           className="w-full h-full object-contain pointer-events-none drop-shadow-md"
           loading="eager"
+          decoding="sync"
         />
       ) : (
-        // Fallback CSS card in case of unexpected image issue
         <div
           className={`w-full h-full flex flex-col items-center justify-center font-bold text-white border-2 border-white/20 ${sizeClasses}`}
           style={{
