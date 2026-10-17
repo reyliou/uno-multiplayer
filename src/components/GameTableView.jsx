@@ -823,7 +823,7 @@ export function GameTableView({
               />
             </div>
 
-            {topPlayer.unoVulnerable && (
+            {topPlayer.unoVulnerable && !isTeammateTop && !(is2v2 && topPlayer.id === teammateIndex) && !isSpectator && (
               <button
                 type="button"
                 onClick={() => onChallengeUno(topPlayer.id)}
@@ -870,7 +870,7 @@ export function GameTableView({
               />
             </div>
 
-            {leftPlayer.unoVulnerable && (
+            {leftPlayer.unoVulnerable && !(is2v2 && leftPlayer.id === teammateIndex) && !isSpectator && (
               <button
                 type="button"
                 onClick={() => onChallengeUno(leftPlayer.id)}
@@ -917,7 +917,7 @@ export function GameTableView({
               />
             </div>
 
-            {rightPlayer.unoVulnerable && (
+            {rightPlayer.unoVulnerable && !(is2v2 && rightPlayer.id === teammateIndex) && !isSpectator && (
               <button
                 type="button"
                 onClick={() => onChallengeUno(rightPlayer.id)}
@@ -1138,11 +1138,11 @@ export function GameTableView({
                     </span>
                   )}
 
-                  {players.some((p) => p.unoVulnerable && p.id !== myIndex) && (
+                  {!isSpectator && players.some((p) => p.unoVulnerable && p.id !== myIndex && !(is2v2 && p.id === teammateIndex)) && (
                     <button
                       type="button"
                       onClick={() => {
-                        const target = players.find((p) => p.unoVulnerable && p.id !== myIndex);
+                        const target = players.find((p) => p.unoVulnerable && p.id !== myIndex && !(is2v2 && p.id === teammateIndex));
                         if (target) onChallengeUno(target.id);
                       }}
                       className="py-1.5 px-3.5 rounded-full bg-red-600/80 hover:bg-red-600 border border-red-400 text-white font-bold text-xs shadow-lg animate-pulse"

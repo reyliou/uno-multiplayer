@@ -540,7 +540,10 @@ export class P2PNetwork {
       case 'ACTION_CHALLENGE': {
         const guest = this.guestConns.get(conn.peer);
         if (!guest || guest.isSpectator) return;
-        this.controller.challengeUno(guest.slotIndex, packet.targetIndex);
+        const res = this.controller.challengeUno(guest.slotIndex, packet.targetIndex);
+        if (!res.success && res.reason) {
+          conn.send({ type: 'ACTION_FAILED', reason: res.reason });
+        }
         break;
       }
 

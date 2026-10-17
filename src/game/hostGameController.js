@@ -589,6 +589,8 @@ export class HostGameController {
 
   recordPlayerTimeoutStrike(playerIndex) {
     if (!this.engine) return false;
+    const isHurryUp = (this.engine.hurryUpTurns > 0 || (this.engine.hurryUpCasterTurnsRemaining || 0) > 0 || this.engine.turnDuration <= 3);
+    if (isHurryUp) return false;
     const player = this.engine.players[playerIndex];
     const hostIdx = this.getHostIndex();
     if (!player || player.isAi || playerIndex === hostIdx || player.isHost) {
@@ -603,8 +605,9 @@ export class HostGameController {
     if (this.engine.colorChoosingPlayerIndex !== playerIndex) return;
 
     const player = this.engine.players[playerIndex];
+    const isHurryUp = (this.engine.hurryUpTurns > 0 || (this.engine.hurryUpCasterTurnsRemaining || 0) > 0 || this.engine.turnDuration <= 3);
     const shouldKick = this.recordPlayerTimeoutStrike(playerIndex);
-    const strikeTag = (!player.isHost && playerIndex !== this.getHostIndex())
+    const strikeTag = (!isHurryUp && !player.isHost && playerIndex !== this.getHostIndex())
       ? ` (本局累計超時 ${player.timeoutCount}/2 次)`
       : '';
 
@@ -632,8 +635,9 @@ export class HostGameController {
     const player = this.engine.players[playerIndex];
     if (!player) return;
 
+    const isHurryUp = (this.engine.hurryUpTurns > 0 || (this.engine.hurryUpCasterTurnsRemaining || 0) > 0 || this.engine.turnDuration <= 3);
     const shouldKick = this.recordPlayerTimeoutStrike(playerIndex);
-    const strikeTag = (!player.isHost && playerIndex !== this.getHostIndex())
+    const strikeTag = (!isHurryUp && !player.isHost && playerIndex !== this.getHostIndex())
       ? ` (本局累計超時 ${player.timeoutCount}/2 次)`
       : '';
 

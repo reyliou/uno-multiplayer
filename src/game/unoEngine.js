@@ -1161,7 +1161,13 @@ export class UnoEngine {
   }
 
   challengeUno(challengerIndex, targetIndex) {
+    const challenger = this.players[challengerIndex];
     const target = this.players[targetIndex];
+    if (this.gameMode === '2v2' && challenger && target) {
+      if (challenger.teamId === target.teamId || (challengerIndex + 2) % 4 === targetIndex) {
+        return { success: false, reason: '2V2 組隊模式中不能抓漏自己的隊友！' };
+      }
+    }
     if (target && target.hand.length === 1 && target.unoVulnerable) {
       const extraBomb = this.checkAndTriggerExplosive(targetIndex);
       const totalPenalty = 2 + extraBomb;
