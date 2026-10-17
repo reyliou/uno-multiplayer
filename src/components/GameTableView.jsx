@@ -154,10 +154,20 @@ export function GameTableView({
       players.forEach(p => { counts[p.id] = p.cardCount; });
       setDisplayedCounts(counts);
     }
+    if (isDealing) {
+      // 新的一局開始發牌時，強制解除上一局可能殘留的出牌鎖定與飛牌鎖定！
+      isCardPlayingRef.current = false;
+      setIsCardPlaying(false);
+      isRemotePlayFlyingRef.current = false;
+      setLocalHasDrawn(false);
+    }
   }, [myHand, players, isDealing]);
 
   useEffect(() => {
     if (gameState?.gameStatus === 'game_over') {
+      isCardPlayingRef.current = false;
+      setIsCardPlaying(false);
+      isRemotePlayFlyingRef.current = false;
       setDisplayedHand(myHand);
       const counts = {};
       players.forEach(p => { counts[p.id] = p.cardCount; });

@@ -1967,7 +1967,7 @@ export class UnoEngine {
     };
   }
 
-  finishContinuousDraw(playerIndex, drawnCards, canPlay) {
+  finishContinuousDraw(playerIndex, drawnCards, canPlay, forceAutoPass = false) {
     const player = this.players[playerIndex];
     if (!player) return { success: false };
 
@@ -1979,9 +1979,13 @@ export class UnoEngine {
       this.addLog(`${player.name} 抽了一張牌。`);
     }
 
-    if (!canPlay) {
+    if (!canPlay || forceAutoPass) {
       this.hasDrawnThisTurn = false;
-      this.addLog(`💨 ${player.name} 連續抽牌已達上限仍無法出牌，自動跳過回合！`);
+      if (forceAutoPass && canPlay) {
+        this.addLog(`⏰ ${player.name} 思考超時，系統已自動抽到能出的牌 (共抽 ${drawnCards.length} 張) 並結束回合！`);
+      } else {
+        this.addLog(`💨 ${player.name} 連續抽牌已達上限仍無法出牌，自動跳過回合！`);
+      }
       this.advanceTurn(1);
       this.lastAction = {
         type: 'draw_autopass',
@@ -2707,6 +2711,7 @@ export class HostGameController {
 
     this.engine = null;
     this.ai = null;
+    this.roundId = 0;
 
     this.dealTimer = null;
     this.aiTimer = null;
@@ -2714,6 +2719,7 @@ export class HostGameController {
     this.continuousDrawTimer = null;
     this.drawLandingTimer = null;
     this.challengeTimer = null;
+    this.effectTimer = null;
     this.isContinuousDrawing = false;
   }
 
@@ -2728,6 +2734,7 @@ export class HostGameController {
   }
 
   startNewMatch(lobbyPlayers, allowStacking, gameMode, options = {}) {
+    this.roundId++;
     this.cleanupTimers();
 
     this.engine = new UnoEngine(
@@ -2745,6 +2752,7 @@ export class HostGameController {
 
   startNextRound(lobbyPlayers, resetMatch = false) {
     if (!this.engine) return;
+    this.roundId++;
     this.cleanupTimers();
 
     if (resetMatch) {
@@ -2767,17 +2775,14 @@ export class HostGameController {
 
   scheduleOpeningDeal() {
     if (this.dealTimer) clearTimeout(this.dealTimer);
+    const activeRoundId = this.roundId;
     this.dealTimer = setTimeout(() => {
+      if (this.roundId !== activeRoundId) return;
       if (!this.engine || this.engine.gameStatus === 'game_over') return;
       this.engine.finishDealing();
       this.onBroadcastState();
-
-      const hostIdx = this.getHostIndex();
-      if (this.engine.currentTurn === hostIdx) {
-        soundManager.playTurn();
-      } else {
-        this.checkAiTurn();
-      }
+      // 統一呼叫 checkAiTurn()，確保無論第 1 位出牌者是房主、客端或 AI，都會正確啟動 15 秒計時器！
+      this.checkAiTurn();
     }, 2200);
   }
 
@@ -2789,8 +2794,6 @@ export class HostGameController {
       return { success: false, reason: '開局發牌中，尚未能出牌' };
     }
 
-    // 關鍵修正：如果玩家剛抽完可出的牌（還在 drawLandingTimer 緩衝內）就立刻點出牌，
-    // 直接清除 drawLandingTimer 並允許出牌，避免出牌被拒絕導致前端吃牌！
     if (this.drawLandingTimer) {
       clearTimeout(this.drawLandingTimer);
       this.drawLandingTimer = null;
@@ -2807,9 +2810,14 @@ export class HostGameController {
 
     const res = this.engine.playCard(playerIndex, cardId, chosenColor);
     if (!res.success) {
-      // 若出牌不合法，強制廣播一次真實狀態讓客端手牌立即校正回原狀
       this.onBroadcastState();
       return res;
+    }
+
+    // 出牌成功後立即清除當前回合的思考超時計時器，避免在過場動畫或結算視窗期間誤觸超時！
+    if (this.turnTimeoutTimer) {
+      clearTimeout(this.turnTimeoutTimer);
+      this.turnTimeoutTimer = null;
     }
 
     if (res.isChoosingColor) {
@@ -2826,19 +2834,23 @@ export class HostGameController {
 
     if (res.gameOver) {
       soundManager.playVictory();
+      this.onBroadcastState();
+      return res;
     }
 
     this.onBroadcastState();
 
-    if (!res.gameOver && res.isVanishing) {
+    const activeRoundId = this.roundId;
+    if (res.isVanishing) {
       this.handleSpecialVanishAndEffects(playerIndex, res.card);
-    } else if (!res.gameOver && ['skip', 'reverse', 'draw2', 'wild_draw4'].includes(res.card.value)) {
+    } else if (['skip', 'reverse', 'draw2', 'wild_draw4'].includes(res.card.value)) {
       this.isContinuousDrawing = true;
       this.engine.isContinuousDrawing = true;
       this.onBroadcastState();
-      setTimeout(() => {
+      this.effectTimer = setTimeout(() => {
+        if (this.roundId !== activeRoundId) return;
         this.finishDrawingCleanup();
-        if (this.engine) {
+        if (this.engine && this.engine.gameStatus === 'playing') {
           this.engine.turnStartTime = Date.now();
           this.onBroadcastState();
         }
@@ -2891,10 +2903,11 @@ export class HostGameController {
     }
 
     if (this.engine.drawRule === 'draw_until_playable') {
-      this.executeContinuousDraw(playerIndex, onDrawComplete);
+      this.executeContinuousDraw(playerIndex, onDrawComplete, false);
       return { success: true, continuous: true };
     }
 
+    const activeRoundId = this.roundId;
     const res = this.engine.playerDrawCard(playerIndex);
     if (res.success) {
       this.emitSound(res.extraBombCards > 0 ? 'penalty' : 'draw');
@@ -2908,6 +2921,7 @@ export class HostGameController {
         this.onBroadcastState();
 
         this.drawLandingTimer = setTimeout(() => {
+          if (this.roundId !== activeRoundId) return;
           this.drawLandingTimer = null;
           this.finishDrawingCleanup();
           if (!this.engine || this.engine.gameStatus === 'game_over') return;
@@ -2917,13 +2931,13 @@ export class HostGameController {
           if (onDrawComplete) onDrawComplete(res);
         }, flightAndBufferMs);
       } else {
-        // 抽到可出的牌：不鎖死 isContinuousDrawing，直接重置計時器並廣播讓玩家可隨時出牌！
         this.engine.turnStartTime = Date.now();
         this.engine.turnDuration = this.engine.getActiveTurnDuration();
         this.resetTurnTimer();
         this.onBroadcastState();
         if (onDrawComplete) {
           this.drawLandingTimer = setTimeout(() => {
+            if (this.roundId !== activeRoundId) return;
             this.drawLandingTimer = null;
             onDrawComplete(res);
           }, 420);
@@ -2960,11 +2974,13 @@ export class HostGameController {
 
   challengeUno(challengerIndex, targetIndex) {
     if (!this.engine) return { success: false };
+    const activeRoundId = this.roundId;
     const res = this.engine.challengeUno(challengerIndex, targetIndex);
     if (res.success && res.caught) {
       this.emitSound('penalty');
       this.onBroadcastState();
       setTimeout(() => {
+        if (this.roundId !== activeRoundId) return;
         if (this.engine && this.engine.activePenaltyBanner?.playerId === targetIndex) {
           this.engine.activePenaltyBanner = null;
           this.onBroadcastState();
@@ -2976,6 +2992,7 @@ export class HostGameController {
 
   challengeWildDraw4(challengerIndex) {
     if (!this.engine || this.isContinuousDrawing) return { success: false };
+    const activeRoundId = this.roundId;
     const res = this.engine.challengeWildDraw4(challengerIndex);
     if (res.success) {
       if (this.turnTimeoutTimer) {
@@ -2986,23 +3003,22 @@ export class HostGameController {
       this.emitSound('action');
       this.onBroadcastState();
 
-      // 第一階段：等待 2450ms 驗牌演出完畢
       this.challengeTimer = setTimeout(() => {
+        if (this.roundId !== activeRoundId) return;
         if (!this.engine || this.engine.gameStatus === 'game_over') {
           this.finishDrawingCleanup();
           return;
         }
 
-        // 第二階段：驗牌動畫結束，正式發放罰抽卡牌並結算
         const penaltyRes = this.engine.resolveWildDraw4ChallengePenalty();
         this.emitSound('penalty');
         this.onBroadcastState();
 
-        // 預留卡牌飛入牌組的飛行時間 (每張 220ms + 750ms 緩衝)
         const drawnCount = penaltyRes.drawnCount || 4;
         const flightWait = drawnCount * 220 + 750;
 
         this.challengeTimer = setTimeout(() => {
+          if (this.roundId !== activeRoundId) return;
           this.finishDrawingCleanup();
           if (this.engine) {
             this.resetTurnTimer();
@@ -3018,10 +3034,11 @@ export class HostGameController {
   // ==========================================================
   // MULTI-STEP SEQUENCES (Continuous Draw, Penalty, Rabbids)
   // ==========================================================
-  executeContinuousDraw(playerIndex, onComplete) {
+  executeContinuousDraw(playerIndex, onComplete, forceAutoPass = false) {
     if (!this.engine || this.engine.currentTurn !== playerIndex) return;
     if (this.isContinuousDrawing || this.engine.hasDrawnThisTurn || this.engine.isChoosingColor) return;
 
+    const activeRoundId = this.roundId;
     this.isContinuousDrawing = true;
     this.engine.isContinuousDrawing = true;
     this.engine.drawingPlayerIndex = playerIndex;
@@ -3036,6 +3053,7 @@ export class HostGameController {
 
       const totalWait = (extraBomb + 1) * 240 + 650;
       this.continuousDrawTimer = setTimeout(() => {
+        if (this.roundId !== activeRoundId) return;
         if (!this.engine || this.engine.gameStatus === 'game_over') return;
         this.finishDrawingCleanup();
         this.engine.finishAutoPass(playerIndex, stepRes.card);
@@ -3050,6 +3068,7 @@ export class HostGameController {
     const maxLimit = 25;
 
     const drawStep = () => {
+      if (this.roundId !== activeRoundId) return;
       if (!this.engine || this.engine.currentTurn !== playerIndex || this.engine.gameStatus === 'game_over') {
         this.finishDrawingCleanup();
         this.onBroadcastState();
@@ -3075,12 +3094,13 @@ export class HostGameController {
 
       if (res.canPlay || drawnCards.length >= maxLimit || (this.engine.drawPile.length === 0 && this.engine.discardPile.length <= 1)) {
         this.continuousDrawTimer = setTimeout(() => {
+          if (this.roundId !== activeRoundId) return;
           if (!this.engine) return;
           this.finishDrawingCleanup();
-          const finalRes = this.engine.finishContinuousDraw(playerIndex, drawnCards, res.canPlay);
+          const finalRes = this.engine.finishContinuousDraw(playerIndex, drawnCards, res.canPlay, forceAutoPass);
           this.onBroadcastState();
 
-          if (finalRes.canPlay) {
+          if (finalRes.canPlay && !forceAutoPass) {
             this.resetTurnTimer();
           } else {
             this.checkAiTurn();
@@ -3101,6 +3121,7 @@ export class HostGameController {
   executePenaltyDraw(playerIndex, onComplete) {
     if (!this.engine || this.isContinuousDrawing || this.engine.isChoosingColor) return;
 
+    const activeRoundId = this.roundId;
     if (this.engine.explosiveActive) {
       this.engine.explosiveActive = false;
       this.engine.stackedDrawCount += 3;
@@ -3125,6 +3146,7 @@ export class HostGameController {
     let drawn = 0;
 
     const step = () => {
+      if (this.roundId !== activeRoundId) return;
       if (!this.engine || this.engine.gameStatus === 'game_over') {
         this.finishDrawingCleanup();
         this.onBroadcastState();
@@ -3149,6 +3171,7 @@ export class HostGameController {
 
       if (drawn >= countToDraw) {
         this.continuousDrawTimer = setTimeout(() => {
+          if (this.roundId !== activeRoundId) return;
           if (!this.engine) return;
           this.engine.finishPenaltyDraw(playerIndex, countToDraw);
           this.finishDrawingCleanup();
@@ -3170,6 +3193,7 @@ export class HostGameController {
   handleSpecialVanishAndEffects(casterIndex, card) {
     if (!this.engine || !card) return;
 
+    const activeRoundId = this.roundId;
     if (this.turnTimeoutTimer) {
       clearTimeout(this.turnTimeoutTimer);
       this.turnTimeoutTimer = null;
@@ -3184,20 +3208,20 @@ export class HostGameController {
     this.onBroadcastState();
 
     if (card.value === 'rabbids_comin_through') {
-      setTimeout(() => {
-        if (!this.engine || this.engine.gameStatus === 'game_over') return;
+      this.effectTimer = setTimeout(() => {
+        if (this.roundId !== activeRoundId || !this.engine || this.engine.gameStatus === 'game_over') return;
         this.engine.executeCominThroughWave(casterIndex, 1);
         this.emitSound('draw');
         this.onBroadcastState();
 
-        setTimeout(() => {
-          if (!this.engine || this.engine.gameStatus === 'game_over') return;
+        this.effectTimer = setTimeout(() => {
+          if (this.roundId !== activeRoundId || !this.engine || this.engine.gameStatus === 'game_over') return;
           this.engine.executeCominThroughWave(casterIndex, 2);
           this.emitSound('draw');
           this.onBroadcastState();
 
-          setTimeout(() => {
-            if (!this.engine || this.engine.gameStatus === 'game_over') return;
+          this.effectTimer = setTimeout(() => {
+            if (this.roundId !== activeRoundId || !this.engine || this.engine.gameStatus === 'game_over') return;
             this.engine.vanishTopSpecialCard(card.id);
             this.finishDrawingCleanup();
             this.onBroadcastState();
@@ -3206,8 +3230,8 @@ export class HostGameController {
         }, 1250);
       }, 700);
     } else if (card.value === 'rabbids_wild_shield' && card.deflectedCount > 0) {
-      setTimeout(() => {
-        if (!this.engine || this.engine.gameStatus === 'game_over') return;
+      this.effectTimer = setTimeout(() => {
+        if (this.roundId !== activeRoundId || !this.engine || this.engine.gameStatus === 'game_over') return;
         const victimIdx = card.deflectedVictimIdx;
         const count = card.deflectedCount;
 
@@ -3217,8 +3241,8 @@ export class HostGameController {
 
         const actualCount = this.engine.activePenaltyBanner?.count || count;
         const totalFlightWaitMs = actualCount * 220 + 850;
-        setTimeout(() => {
-          if (!this.engine || this.engine.gameStatus === 'game_over') return;
+        this.effectTimer = setTimeout(() => {
+          if (this.roundId !== activeRoundId || !this.engine || this.engine.gameStatus === 'game_over') return;
           this.engine.vanishTopSpecialCard(card.id);
           this.finishDrawingCleanup();
           this.onBroadcastState();
@@ -3226,10 +3250,8 @@ export class HostGameController {
         }, totalFlightWaitMs);
       }, 750);
     } else {
-      // 瘋狂快抽 (Hurry Up!) 或 定時炸彈 (Explosive Results)：
-      // 展示並淡出 1250ms 後推進至下一家
-      setTimeout(() => {
-        if (!this.engine || this.engine.gameStatus === 'game_over') return;
+      this.effectTimer = setTimeout(() => {
+        if (this.roundId !== activeRoundId || !this.engine || this.engine.gameStatus === 'game_over') return;
         this.engine.vanishTopSpecialCard(card.id);
         this.finishDrawingCleanup();
         this.onBroadcastState();
@@ -3251,11 +3273,14 @@ export class HostGameController {
       return;
     }
 
+    const activeRoundId = this.roundId;
+
     if (this.engine.isChoosingColor) {
       const choosingIdx = this.engine.colorChoosingPlayerIndex;
       const choosingPlayer = this.engine.players[choosingIdx];
       if (choosingPlayer && !choosingPlayer.isAi) {
         this.turnTimeoutTimer = setTimeout(() => {
+          if (this.roundId !== activeRoundId) return;
           this.handleColorTimeout(choosingIdx);
         }, 6000);
       }
@@ -3269,6 +3294,7 @@ export class HostGameController {
     if (!curPlayer.isAi) {
       const durationMs = (this.engine.turnDuration || 15) * 1000;
       this.turnTimeoutTimer = setTimeout(() => {
+        if (this.roundId !== activeRoundId) return;
         this.handleTurnTimeout(curIdx);
       }, durationMs);
     }
@@ -3306,7 +3332,7 @@ export class HostGameController {
       this.emitSound('wild');
 
       if (shouldKick) {
-        this.onAutoKickPlayer(playerIndex, '單局思考/選色超時累計達 2 次，系統已自動將你移出並由 AI 接管！');
+        this.onAutoKickPlayer(playerIndex, '本局思考/選色超時累計達 2 次，本局暫由 AI 自動託管（出牌或進入下一局即恢復手動）！');
         return;
       }
 
@@ -3322,6 +3348,7 @@ export class HostGameController {
     const player = this.engine.players[playerIndex];
     if (!player) return;
 
+    const activeRoundId = this.roundId;
     const isHurryUp = (this.engine.hurryUpTurns > 0 || (this.engine.hurryUpCasterTurnsRemaining || 0) > 0 || this.engine.turnDuration <= 3);
     const shouldKick = this.recordPlayerTimeoutStrike(playerIndex);
     const strikeTag = (!isHurryUp && !player.isHost && playerIndex !== this.getHostIndex())
@@ -3334,7 +3361,7 @@ export class HostGameController {
       this.engine.addLog(`⏰ 【${player.name}】思考超時 (${limitSec} 秒)，系統自動承受罰抽！${strikeTag}`);
       this.executePenaltyDraw(playerIndex, () => {
         if (shouldKick) {
-          this.onAutoKickPlayer(playerIndex, '單局思考超時累計達 2 次，系統已自動將你移出並由 AI 接管！');
+          this.onAutoKickPlayer(playerIndex, '本局思考超時累計達 2 次，本局暫由 AI 自動託管（出牌或進入下一局即恢復手動）！');
         }
       });
       return;
@@ -3345,7 +3372,7 @@ export class HostGameController {
       const passRes = this.engine.passTurn(playerIndex);
       if (passRes.success) {
         if (shouldKick) {
-          this.onAutoKickPlayer(playerIndex, '單局思考超時累計達 2 次，系統已自動將你移出並由 AI 接管！');
+          this.onAutoKickPlayer(playerIndex, '本局思考超時累計達 2 次，本局暫由 AI 自動託管（出牌或進入下一局即恢復手動）！');
           return;
         }
         this.onBroadcastState();
@@ -3354,9 +3381,23 @@ export class HostGameController {
       return;
     }
 
+    // 關鍵修正：若房間設定為「抽到能出 (draw_until_playable)」，超時（包含瘋狂快抽 3 秒超時）必須觸發連續抽到能出為止！
+    if (this.engine.drawRule === 'draw_until_playable') {
+      this.engine.addLog(`⏰ 【${player.name}】思考超時 (${limitSec} 秒)，系統自動執行「抽到能出」並結束回合！${strikeTag}`);
+      this.executeContinuousDraw(playerIndex, () => {
+        if (shouldKick) {
+          this.onAutoKickPlayer(playerIndex, '本局思考超時累計達 2 次，本局暫由 AI 自動託管（出牌或進入下一局即恢復手動）！');
+        }
+      }, true /* forceAutoPass */);
+      return;
+    }
+
     const extraBombCards = this.engine.checkAndTriggerExplosive(playerIndex);
     const card = this.engine.drawCardRaw();
     player.hand.push(card);
+    if (extraBombCards > 0) {
+      this.engine.activePenaltyBanner = { playerId: playerIndex, count: 1 + extraBombCards };
+    }
     if (player.hand.length > 1) {
       player.calledUno = false;
       player.unoVulnerable = false;
@@ -3373,13 +3414,14 @@ export class HostGameController {
     this.engine.isContinuousDrawing = true;
     this.onBroadcastState();
 
-    setTimeout(() => {
+    this.effectTimer = setTimeout(() => {
+      if (this.roundId !== activeRoundId) return;
       this.finishDrawingCleanup();
       if (!this.engine || this.engine.gameStatus === 'game_over') return;
       this.engine.advanceTurn(1);
 
       if (shouldKick) {
-        this.onAutoKickPlayer(playerIndex, '單局思考超時累計達 2 次，系統已自動將你移出並由 AI 接管！');
+        this.onAutoKickPlayer(playerIndex, '本局思考超時累計達 2 次，本局暫由 AI 自動託管（出牌或進入下一局即恢復手動）！');
         return;
       }
 
@@ -3409,8 +3451,10 @@ export class HostGameController {
       return;
     }
 
+    const activeRoundId = this.roundId;
     const delay = 850 + Math.random() * 400;
     this.aiTimer = setTimeout(() => {
+      if (this.roundId !== activeRoundId) return;
       this.executeAiTurn(curIdx);
     }, delay);
   }
@@ -3418,6 +3462,7 @@ export class HostGameController {
   executeAiTurn(aiIndex) {
     if (!this.engine || this.engine.currentTurn !== aiIndex || this.engine.gameStatus === 'game_over' || this.engine.isDealing || this.isContinuousDrawing) return;
 
+    const activeRoundId = this.roundId;
     const move = this.ai.decideMove(aiIndex);
     if (!move) return;
 
@@ -3437,7 +3482,8 @@ export class HostGameController {
     } else if (move.action === 'draw') {
       this.drawCard(aiIndex, (res) => {
         if (res && res.canPlay && res.card) {
-          setTimeout(() => {
+          this.aiTimer = setTimeout(() => {
+            if (this.roundId !== activeRoundId) return;
             if (this.engine && this.engine.currentTurn === aiIndex && !this.isContinuousDrawing) {
               const card = res.card;
               const chosenColor = card.color === 'wild'
@@ -3466,6 +3512,10 @@ export class HostGameController {
       clearTimeout(this.challengeTimer);
       this.challengeTimer = null;
     }
+    if (this.effectTimer) {
+      clearTimeout(this.effectTimer);
+      this.effectTimer = null;
+    }
     if (this.engine) {
       this.engine.isContinuousDrawing = false;
       this.engine.drawingPlayerIndex = null;
@@ -3493,9 +3543,14 @@ export class HostGameController {
       clearTimeout(this.challengeTimer);
       this.challengeTimer = null;
     }
+    if (this.effectTimer) {
+      clearTimeout(this.effectTimer);
+      this.effectTimer = null;
+    }
   }
 
   destroy() {
+    this.roundId++;
     this.cleanupTimers();
     this.engine = null;
     this.ai = null;
@@ -3545,7 +3600,7 @@ export class P2PNetwork {
     this.controller = new HostGameController({
       onBroadcastState: () => this.broadcastGameState(),
       onBroadcastSound: (soundName) => this.broadcastSoundEvent(soundName),
-      onAutoKickPlayer: (slotIndex, reason) => this.kickPlayer(slotIndex, reason),
+      onAutoKickPlayer: (slotIndex, reason) => this.enableTempAiTakeover(slotIndex, reason),
       getHostIndex: () => this.getHostIndex()
     });
   }
@@ -3682,6 +3737,56 @@ export class P2PNetwork {
     });
   }
 
+  // 開局或換下一局前，強制將所有仍在線上的真人客端同步回 lobbyPlayers，杜絕換局後變成 AI！
+  syncLobbyPlayersWithConnections() {
+    for (const [peerId, guestInfo] of this.guestConns.entries()) {
+      if (guestInfo.conn && guestInfo.conn.open && !guestInfo.isSpectator && guestInfo.slotIndex >= 0) {
+        const slot = this.lobbyPlayers[guestInfo.slotIndex];
+        if (slot && !slot.isHost) {
+          slot.isAi = false;
+          slot.peerId = peerId;
+          slot.name = guestInfo.name;
+        }
+      }
+    }
+  }
+
+  // 當玩家單局超時達 2 次時，僅在「當前這一局」暫由 AI 代打，不踢出房間、也不覆蓋 lobbyPlayers！
+  enableTempAiTakeover(slotIndex, reason = '本局思考超時達 2 次，暫由 AI 託管（下一局或主動操作即恢復）') {
+    if (!this.isHost || !this.engine) return;
+    const hostIdx = this.getHostIndex();
+    if (slotIndex === hostIdx) return;
+
+    const enginePlayer = this.engine.players[slotIndex];
+    if (!enginePlayer || enginePlayer.isAi) return;
+
+    const cleanName = enginePlayer.name.replace(/ \(AI 接管\)$/g, '').replace(/ \(AI 託管\)$/g, '');
+    enginePlayer.isAi = true;
+    enginePlayer.name = `${cleanName} (AI 託管)`;
+    this.engine.addLog(`🤖 【${cleanName}】${reason}`);
+
+    if (this.engine.isChoosingColor && this.engine.colorChoosingPlayerIndex === slotIndex) {
+      const autoColor = this.engine.getBestColorForPlayer(slotIndex);
+      this.engine.confirmWildColor(slotIndex, autoColor);
+    }
+
+    this.controller.emitSound('penalty');
+    this.broadcastGameState();
+    this.controller.checkAiTurn();
+  }
+
+  // 若被暫時 AI 託管的玩家主動點擊了出牌/抽牌/喊UNO，立即解除 AI 託管恢復手動操作！
+  restoreHumanControlIfActive(slotIndex, guestName) {
+    if (!this.engine || !this.engine.players || !this.engine.players[slotIndex]) return;
+    const ep = this.engine.players[slotIndex];
+    if (ep.isAi) {
+      ep.isAi = false;
+      ep.timeoutCount = 0;
+      ep.name = guestName || ep.name.replace(/ \(AI 接管\)$/g, '').replace(/ \(AI 託管\)$/g, '');
+      this.engine.addLog(`✨ 【${ep.name}】已回到牌桌恢復手動操作！`);
+    }
+  }
+
   handleIncomingConnection(conn) {
     conn.on('open', () => {
       conn.on('data', (data) => {
@@ -3695,7 +3800,10 @@ export class P2PNetwork {
 
     conn.on('error', (err) => {
       console.warn('Guest connection error:', err);
-      this.handleGuestDisconnect(conn.peer);
+      // 關鍵修正：只有當連線真正關閉 (!conn.open) 時才視為斷線轉 AI，避免學校網路偶發警告誤把真人變成 AI！
+      if (!conn.open) {
+        this.handleGuestDisconnect(conn.peer);
+      }
     });
   }
 
@@ -4005,6 +4113,7 @@ export class P2PNetwork {
       case 'ACTION_PLAY': {
         const guest = this.guestConns.get(conn.peer);
         if (!guest || guest.isSpectator) return;
+        this.restoreHumanControlIfActive(guest.slotIndex, guest.name);
         const res = this.controller.playCard(guest.slotIndex, packet.cardId, packet.chosenColor, packet.calledUno);
         if (!res.success && res.reason) {
           conn.send({ type: 'ACTION_FAILED', reason: res.reason });
@@ -4015,6 +4124,7 @@ export class P2PNetwork {
       case 'ACTION_CHOOSE_COLOR': {
         const guest = this.guestConns.get(conn.peer);
         if (!guest || guest.isSpectator) return;
+        this.restoreHumanControlIfActive(guest.slotIndex, guest.name);
         this.controller.chooseColor(guest.slotIndex, packet.chosenColor);
         break;
       }
@@ -4022,6 +4132,7 @@ export class P2PNetwork {
       case 'ACTION_DRAW': {
         const guest = this.guestConns.get(conn.peer);
         if (!guest || guest.isSpectator) return;
+        this.restoreHumanControlIfActive(guest.slotIndex, guest.name);
         const res = this.controller.drawCard(guest.slotIndex);
         if (!res.success && res.reason) {
           conn.send({ type: 'ACTION_FAILED', reason: res.reason });
@@ -4032,6 +4143,7 @@ export class P2PNetwork {
       case 'ACTION_PASS': {
         const guest = this.guestConns.get(conn.peer);
         if (!guest || guest.isSpectator) return;
+        this.restoreHumanControlIfActive(guest.slotIndex, guest.name);
         const res = this.controller.passTurn(guest.slotIndex);
         if (!res.success && res.reason) {
           conn.send({ type: 'ACTION_FAILED', reason: res.reason });
@@ -4042,6 +4154,7 @@ export class P2PNetwork {
       case 'ACTION_UNO': {
         const guest = this.guestConns.get(conn.peer);
         if (!guest || guest.isSpectator) return;
+        this.restoreHumanControlIfActive(guest.slotIndex, guest.name);
         this.controller.callUno(guest.slotIndex);
         break;
       }
@@ -4260,6 +4373,8 @@ export class P2PNetwork {
   startGame() {
     if (!this.isHost || this.gameStarted) return;
 
+    this.syncLobbyPlayersWithConnections();
+
     this.lobbyPlayers.forEach((p, idx) => {
       if (!p.peerId && !p.isHost && !p.isAi) {
         p.isAi = true;
@@ -4288,6 +4403,8 @@ export class P2PNetwork {
 
   startNextRound(resetMatch = false) {
     if (!this.isHost) return;
+    // 關鍵修正：進入下一局前，強制將所有仍在線的客端玩家恢復為 isAi = false！
+    this.syncLobbyPlayersWithConnections();
     this.controller.startNextRound(this.lobbyPlayers, resetMatch);
   }
 
@@ -4300,6 +4417,7 @@ export class P2PNetwork {
     this.controller.cleanupTimers();
     this.gameStarted = false;
     this.resetLobbyIdleTimer();
+    this.syncLobbyPlayersWithConnections();
 
     if (this.engine && this.engine.players) {
       this.engine.players.forEach(ep => {
@@ -6534,10 +6652,20 @@ export function GameTableView({
       players.forEach(p => { counts[p.id] = p.cardCount; });
       setDisplayedCounts(counts);
     }
+    if (isDealing) {
+      // 新的一局開始發牌時，強制解除上一局可能殘留的出牌鎖定與飛牌鎖定！
+      isCardPlayingRef.current = false;
+      setIsCardPlaying(false);
+      isRemotePlayFlyingRef.current = false;
+      setLocalHasDrawn(false);
+    }
   }, [myHand, players, isDealing]);
 
   useEffect(() => {
     if (gameState?.gameStatus === 'game_over') {
+      isCardPlayingRef.current = false;
+      setIsCardPlaying(false);
+      isRemotePlayFlyingRef.current = false;
       setDisplayedHand(myHand);
       const counts = {};
       players.forEach(p => { counts[p.id] = p.cardCount; });

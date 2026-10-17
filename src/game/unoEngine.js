@@ -1055,7 +1055,7 @@ export class UnoEngine {
     };
   }
 
-  finishContinuousDraw(playerIndex, drawnCards, canPlay) {
+  finishContinuousDraw(playerIndex, drawnCards, canPlay, forceAutoPass = false) {
     const player = this.players[playerIndex];
     if (!player) return { success: false };
 
@@ -1067,9 +1067,13 @@ export class UnoEngine {
       this.addLog(`${player.name} 抽了一張牌。`);
     }
 
-    if (!canPlay) {
+    if (!canPlay || forceAutoPass) {
       this.hasDrawnThisTurn = false;
-      this.addLog(`💨 ${player.name} 連續抽牌已達上限仍無法出牌，自動跳過回合！`);
+      if (forceAutoPass && canPlay) {
+        this.addLog(`⏰ ${player.name} 思考超時，系統已自動抽到能出的牌 (共抽 ${drawnCards.length} 張) 並結束回合！`);
+      } else {
+        this.addLog(`💨 ${player.name} 連續抽牌已達上限仍無法出牌，自動跳過回合！`);
+      }
       this.advanceTurn(1);
       this.lastAction = {
         type: 'draw_autopass',

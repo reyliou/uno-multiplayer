@@ -36,7 +36,7 @@ export class P2PNetwork {
     this.controller = new HostGameController({
       onBroadcastState: () => this.broadcastGameState(),
       onBroadcastSound: (soundName) => this.broadcastSoundEvent(soundName),
-      onAutoKickPlayer: (slotIndex, reason) => this.kickPlayer(slotIndex, reason),
+      onAutoKickPlayer: (slotIndex, reason) => this.enableTempAiTakeover(slotIndex, reason),
       getHostIndex: () => this.getHostIndex()
     });
   }
@@ -173,6 +173,56 @@ export class P2PNetwork {
     });
   }
 
+  // 開局或換下一局前，強制將所有仍在線上的真人客端同步回 lobbyPlayers，杜絕換局後變成 AI！
+  syncLobbyPlayersWithConnections() {
+    for (const [peerId, guestInfo] of this.guestConns.entries()) {
+      if (guestInfo.conn && guestInfo.conn.open && !guestInfo.isSpectator && guestInfo.slotIndex >= 0) {
+        const slot = this.lobbyPlayers[guestInfo.slotIndex];
+        if (slot && !slot.isHost) {
+          slot.isAi = false;
+          slot.peerId = peerId;
+          slot.name = guestInfo.name;
+        }
+      }
+    }
+  }
+
+  // 當玩家單局超時達 2 次時，僅在「當前這一局」暫由 AI 代打，不踢出房間、也不覆蓋 lobbyPlayers！
+  enableTempAiTakeover(slotIndex, reason = '本局思考超時達 2 次，暫由 AI 託管（下一局或主動操作即恢復）') {
+    if (!this.isHost || !this.engine) return;
+    const hostIdx = this.getHostIndex();
+    if (slotIndex === hostIdx) return;
+
+    const enginePlayer = this.engine.players[slotIndex];
+    if (!enginePlayer || enginePlayer.isAi) return;
+
+    const cleanName = enginePlayer.name.replace(/ \(AI 接管\)$/g, '').replace(/ \(AI 託管\)$/g, '');
+    enginePlayer.isAi = true;
+    enginePlayer.name = `${cleanName} (AI 託管)`;
+    this.engine.addLog(`🤖 【${cleanName}】${reason}`);
+
+    if (this.engine.isChoosingColor && this.engine.colorChoosingPlayerIndex === slotIndex) {
+      const autoColor = this.engine.getBestColorForPlayer(slotIndex);
+      this.engine.confirmWildColor(slotIndex, autoColor);
+    }
+
+    this.controller.emitSound('penalty');
+    this.broadcastGameState();
+    this.controller.checkAiTurn();
+  }
+
+  // 若被暫時 AI 託管的玩家主動點擊了出牌/抽牌/喊UNO，立即解除 AI 託管恢復手動操作！
+  restoreHumanControlIfActive(slotIndex, guestName) {
+    if (!this.engine || !this.engine.players || !this.engine.players[slotIndex]) return;
+    const ep = this.engine.players[slotIndex];
+    if (ep.isAi) {
+      ep.isAi = false;
+      ep.timeoutCount = 0;
+      ep.name = guestName || ep.name.replace(/ \(AI 接管\)$/g, '').replace(/ \(AI 託管\)$/g, '');
+      this.engine.addLog(`✨ 【${ep.name}】已回到牌桌恢復手動操作！`);
+    }
+  }
+
   handleIncomingConnection(conn) {
     conn.on('open', () => {
       conn.on('data', (data) => {
@@ -186,7 +236,10 @@ export class P2PNetwork {
 
     conn.on('error', (err) => {
       console.warn('Guest connection error:', err);
-      this.handleGuestDisconnect(conn.peer);
+      // 關鍵修正：只有當連線真正關閉 (!conn.open) 時才視為斷線轉 AI，避免學校網路偶發警告誤把真人變成 AI！
+      if (!conn.open) {
+        this.handleGuestDisconnect(conn.peer);
+      }
     });
   }
 
@@ -496,6 +549,7 @@ export class P2PNetwork {
       case 'ACTION_PLAY': {
         const guest = this.guestConns.get(conn.peer);
         if (!guest || guest.isSpectator) return;
+        this.restoreHumanControlIfActive(guest.slotIndex, guest.name);
         const res = this.controller.playCard(guest.slotIndex, packet.cardId, packet.chosenColor, packet.calledUno);
         if (!res.success && res.reason) {
           conn.send({ type: 'ACTION_FAILED', reason: res.reason });
@@ -506,6 +560,7 @@ export class P2PNetwork {
       case 'ACTION_CHOOSE_COLOR': {
         const guest = this.guestConns.get(conn.peer);
         if (!guest || guest.isSpectator) return;
+        this.restoreHumanControlIfActive(guest.slotIndex, guest.name);
         this.controller.chooseColor(guest.slotIndex, packet.chosenColor);
         break;
       }
@@ -513,6 +568,7 @@ export class P2PNetwork {
       case 'ACTION_DRAW': {
         const guest = this.guestConns.get(conn.peer);
         if (!guest || guest.isSpectator) return;
+        this.restoreHumanControlIfActive(guest.slotIndex, guest.name);
         const res = this.controller.drawCard(guest.slotIndex);
         if (!res.success && res.reason) {
           conn.send({ type: 'ACTION_FAILED', reason: res.reason });
@@ -523,6 +579,7 @@ export class P2PNetwork {
       case 'ACTION_PASS': {
         const guest = this.guestConns.get(conn.peer);
         if (!guest || guest.isSpectator) return;
+        this.restoreHumanControlIfActive(guest.slotIndex, guest.name);
         const res = this.controller.passTurn(guest.slotIndex);
         if (!res.success && res.reason) {
           conn.send({ type: 'ACTION_FAILED', reason: res.reason });
@@ -533,6 +590,7 @@ export class P2PNetwork {
       case 'ACTION_UNO': {
         const guest = this.guestConns.get(conn.peer);
         if (!guest || guest.isSpectator) return;
+        this.restoreHumanControlIfActive(guest.slotIndex, guest.name);
         this.controller.callUno(guest.slotIndex);
         break;
       }
@@ -751,6 +809,8 @@ export class P2PNetwork {
   startGame() {
     if (!this.isHost || this.gameStarted) return;
 
+    this.syncLobbyPlayersWithConnections();
+
     this.lobbyPlayers.forEach((p, idx) => {
       if (!p.peerId && !p.isHost && !p.isAi) {
         p.isAi = true;
@@ -779,6 +839,8 @@ export class P2PNetwork {
 
   startNextRound(resetMatch = false) {
     if (!this.isHost) return;
+    // 關鍵修正：進入下一局前，強制將所有仍在線的客端玩家恢復為 isAi = false！
+    this.syncLobbyPlayersWithConnections();
     this.controller.startNextRound(this.lobbyPlayers, resetMatch);
   }
 
@@ -791,6 +853,7 @@ export class P2PNetwork {
     this.controller.cleanupTimers();
     this.gameStarted = false;
     this.resetLobbyIdleTimer();
+    this.syncLobbyPlayersWithConnections();
 
     if (this.engine && this.engine.players) {
       this.engine.players.forEach(ep => {
