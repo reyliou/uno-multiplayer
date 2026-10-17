@@ -2073,7 +2073,13 @@ export class UnoEngine {
   }
 
   challengeUno(challengerIndex, targetIndex) {
+    const challenger = this.players[challengerIndex];
     const target = this.players[targetIndex];
+    if (this.gameMode === '2v2' && challenger && target) {
+      if (challenger.teamId === target.teamId || (challengerIndex + 2) % 4 === targetIndex) {
+        return { success: false, reason: '2V2 組隊模式中不能抓漏自己的隊友！' };
+      }
+    }
     if (target && target.hand.length === 1 && target.unoVulnerable) {
       const extraBomb = this.checkAndTriggerExplosive(targetIndex);
       const totalPenalty = 2 + extraBomb;
@@ -3270,6 +3276,8 @@ export class HostGameController {
 
   recordPlayerTimeoutStrike(playerIndex) {
     if (!this.engine) return false;
+    const isHurryUp = (this.engine.hurryUpTurns > 0 || (this.engine.hurryUpCasterTurnsRemaining || 0) > 0 || this.engine.turnDuration <= 3);
+    if (isHurryUp) return false;
     const player = this.engine.players[playerIndex];
     const hostIdx = this.getHostIndex();
     if (!player || player.isAi || playerIndex === hostIdx || player.isHost) {
@@ -3284,8 +3292,9 @@ export class HostGameController {
     if (this.engine.colorChoosingPlayerIndex !== playerIndex) return;
 
     const player = this.engine.players[playerIndex];
+    const isHurryUp = (this.engine.hurryUpTurns > 0 || (this.engine.hurryUpCasterTurnsRemaining || 0) > 0 || this.engine.turnDuration <= 3);
     const shouldKick = this.recordPlayerTimeoutStrike(playerIndex);
-    const strikeTag = (!player.isHost && playerIndex !== this.getHostIndex())
+    const strikeTag = (!isHurryUp && !player.isHost && playerIndex !== this.getHostIndex())
       ? ` (本局累計超時 ${player.timeoutCount}/2 次)`
       : '';
 
@@ -3313,8 +3322,9 @@ export class HostGameController {
     const player = this.engine.players[playerIndex];
     if (!player) return;
 
+    const isHurryUp = (this.engine.hurryUpTurns > 0 || (this.engine.hurryUpCasterTurnsRemaining || 0) > 0 || this.engine.turnDuration <= 3);
     const shouldKick = this.recordPlayerTimeoutStrike(playerIndex);
-    const strikeTag = (!player.isHost && playerIndex !== this.getHostIndex())
+    const strikeTag = (!isHurryUp && !player.isHost && playerIndex !== this.getHostIndex())
       ? ` (本局累計超時 ${player.timeoutCount}/2 次)`
       : '';
 
@@ -4039,7 +4049,10 @@ export class P2PNetwork {
       case 'ACTION_CHALLENGE': {
         const guest = this.guestConns.get(conn.peer);
         if (!guest || guest.isSpectator) return;
-        this.controller.challengeUno(guest.slotIndex, packet.targetIndex);
+        const res = this.controller.challengeUno(guest.slotIndex, packet.targetIndex);
+        if (!res.success && res.reason) {
+          conn.send({ type: 'ACTION_FAILED', reason: res.reason });
+        }
         break;
       }
 
@@ -7190,7 +7203,7 @@ export function GameTableView({
               />
             </div>
 
-            {topPlayer.unoVulnerable && (
+            {topPlayer.unoVulnerable && !isTeammateTop && !(is2v2 && topPlayer.id === teammateIndex) && !isSpectator && (
               <button
                 type="button"
                 onClick={() => onChallengeUno(topPlayer.id)}
@@ -7237,7 +7250,7 @@ export function GameTableView({
               />
             </div>
 
-            {leftPlayer.unoVulnerable && (
+            {leftPlayer.unoVulnerable && !(is2v2 && leftPlayer.id === teammateIndex) && !isSpectator && (
               <button
                 type="button"
                 onClick={() => onChallengeUno(leftPlayer.id)}
@@ -7284,7 +7297,7 @@ export function GameTableView({
               />
             </div>
 
-            {rightPlayer.unoVulnerable && (
+            {rightPlayer.unoVulnerable && !(is2v2 && rightPlayer.id === teammateIndex) && !isSpectator && (
               <button
                 type="button"
                 onClick={() => onChallengeUno(rightPlayer.id)}
@@ -7505,11 +7518,11 @@ export function GameTableView({
                     </span>
                   )}
 
-                  {players.some((p) => p.unoVulnerable && p.id !== myIndex) && (
+                  {!isSpectator && players.some((p) => p.unoVulnerable && p.id !== myIndex && !(is2v2 && p.id === teammateIndex)) && (
                     <button
                       type="button"
                       onClick={() => {
-                        const target = players.find((p) => p.unoVulnerable && p.id !== myIndex);
+                        const target = players.find((p) => p.unoVulnerable && p.id !== myIndex && !(is2v2 && p.id === teammateIndex));
                         if (target) onChallengeUno(target.id);
                       }}
                       className="py-1.5 px-3.5 rounded-full bg-red-600/80 hover:bg-red-600 border border-red-400 text-white font-bold text-xs shadow-lg animate-pulse"
